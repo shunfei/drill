@@ -234,6 +234,7 @@
         </configuration>
       </plugin>
 
+      <!--
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
@@ -260,6 +261,7 @@
           </execution>
         </executions>
       </plugin>
+      -->
 
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -430,7 +432,7 @@
             <argLine>-Xms512m -Xmx3g -Ddrill.exec.http.enabled=false
               -Ddrill.exec.sys.store.provider.local.write=false
               -Dorg.apache.drill.exec.server.Drillbit.system_options="org.apache.drill.exec.compile.ClassTransformer.scalar_replacement=on"
-              -Ddrill.test.query.printing.silent=true
+              -Ddrill.test.query.printing.silent=false
               -Ddrill.catastrophic_to_standard_out=true
               -XX:MaxPermSize=512M -XX:MaxDirectMemorySize=3072M
               -Djava.net.preferIPv4Stack=true
