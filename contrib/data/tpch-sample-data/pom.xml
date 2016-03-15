@@ -25,26 +25,26 @@
   </dependencies>
   <build>
     <plugins>
-      <plugin>
-        <groupId>com.googlecode.maven-download-plugin</groupId>
-        <artifactId>download-maven-plugin</artifactId>
-        <version>1.2.0</version>
-        <executions>
-          <execution>
-            <id>install-tgz</id>
-            <phase>prepare-package</phase>
-            <goals>
-              <goal>wget</goal>
-            </goals>
-            <configuration>
-              <url>http://apache-drill.s3.amazonaws.com/files/sf-0.01_tpc-h_parquet_typed.tgz</url>
-              <outputFileName>tpch.tgz</outputFileName>
-              <unpack>true</unpack>
-              <outputDirectory>${project.build.directory}/classes/tpch</outputDirectory>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
+      <!--<plugin>-->
+        <!--<groupId>com.googlecode.maven-download-plugin</groupId>-->
+        <!--<artifactId>download-maven-plugin</artifactId>-->
+        <!--<version>1.2.0</version>-->
+        <!--<executions>-->
+          <!--<execution>-->
+            <!--<id>install-tgz</id>-->
+            <!--<phase>prepare-package</phase>-->
+            <!--<goals>-->
+              <!--<goal>wget</goal>-->
+            <!--</goals>-->
+            <!--<configuration>-->
+              <!--<url>http://apache-drill.s3.amazonaws.com/files/sf-0.01_tpc-h_parquet_typed.tgz</url>-->
+              <!--<outputFileName>tpch.tgz</outputFileName>-->
+              <!--<unpack>true</unpack>-->
+              <!--<outputDirectory>${project.build.directory}/classes/tpch</outputDirectory>-->
+            <!--</configuration>-->
+          <!--</execution>-->
+        <!--</executions>-->
+      <!--</plugin>-->
     </plugins>
   </build>
   <pluginRepositories>
