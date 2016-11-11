@@ -34,7 +34,7 @@ public class TestIndexRPlugin extends BaseTestQuery {
 
     // 19 is the limit for drill transform in into hashjoin!
 
-    String sql = "select A.user_id, sum(A.clicks), sum(B.impressions) as aa from indexr.campaign as A join indexr.campaign as B on A.channel_id = B.channel_id " +
+    String sql = "select A.user_id, sum(A.clicks), sum(B.impressions) as aa from indexr.campaign as A join indexr.test as B on A.channel_id = B.channel_id " +
       "where " +
       "A.campaign_id in (0, 51409, 54638,31460, 50688, 51087, 55) and (B.user_id > 10000 or B.spot_id < 100000) " +
       "group by A.user_id order by aa desc limit 100";
