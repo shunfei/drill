@@ -16,12 +16,15 @@
   <parent>
     <artifactId>drill-contrib-parent</artifactId>
     <groupId>org.apache.drill.contrib</groupId>
-    <version>1.5.0</version>
+    <version>1.8.0</version>
   </parent>
 
   <artifactId>drill-indexr-storage</artifactId>
-
   <name>contrib/indexr-storage-plugin</name>
+
+  <properties>
+    <indexr.version>0.1.0</indexr.version>
+  </properties>
 
   <dependencies>
     <dependency>
@@ -33,7 +36,7 @@
     <dependency>
       <groupId>io.indexr</groupId>
       <artifactId>indexr-common</artifactId>
-      <version>0.1.0</version>
+      <version>${indexr.version}</version>
       <exclusions>
         <exclusion>
           <groupId>com.fasterxml.jackson.core</groupId>
@@ -57,7 +60,7 @@
     <dependency>
       <groupId>io.indexr</groupId>
       <artifactId>indexr-segment</artifactId>
-      <version>0.1.0</version>
+      <version>${indexr.version}</version>
       <exclusions>
         <exclusion>
           <groupId>com.fasterxml.jackson.core</groupId>
@@ -81,7 +84,7 @@
     <dependency>
       <groupId>io.indexr</groupId>
       <artifactId>indexr-server</artifactId>
-      <version>0.1.0</version>
+      <version>${indexr.version}</version>
       <exclusions>
 
         <exclusion>

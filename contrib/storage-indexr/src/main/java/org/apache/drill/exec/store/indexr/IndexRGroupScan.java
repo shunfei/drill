@@ -23,7 +23,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 
-import com.carrotsearch.hppc.ObjectLongOpenHashMap;
+import com.carrotsearch.hppc.ObjectLongHashMap;
 import com.carrotsearch.hppc.cursors.ObjectLongCursor;
 import com.fasterxml.jackson.annotation.JacksonInject;
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -197,7 +197,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
     List<ScanCompleteWork> historyWorks = new ArrayList<>(1024);
     ListMultimap<DrillbitEndpoint, RangeWork> realtimeWorks = ArrayListMultimap.create();
-    ObjectLongOpenHashMap<DrillbitEndpoint> affinities = new ObjectLongOpenHashMap<DrillbitEndpoint>();
+    ObjectLongHashMap<DrillbitEndpoint> affinities = new ObjectLongHashMap<>();
 
     for (InfoSegment segment : usedSegments) {
       List<String> hosts = table.segmentLocality().getHosts(segment.name(), segment.isRealtime());
@@ -399,7 +399,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
       ListMultimap<DrillbitEndpoint, Integer> endpointToMinoFragmentId = ArrayListMultimap.create();
 
       // Put history works.
-      ListMultimap<Integer, ScanCompleteWork> fakeAssignments = AssignmentCreator.getMappings(endpoints, historyWorks, plugin.context());
+      ListMultimap<Integer, ScanCompleteWork> fakeAssignments = AssignmentCreator.getMappings(endpoints, historyWorks);
       for (int id = 0; id < endpoints.size(); id++) {
         DrillbitEndpoint endpoint = endpoints.get(id);
 

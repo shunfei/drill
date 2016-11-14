@@ -45,9 +45,9 @@ public class IndexRPushDownRSFilter {
     }
 
     IndexRGroupScan groupScan = (IndexRGroupScan) gs;
-    if (groupScan.getScanSpec().getRSFilter() != null) {
-      return;
-    }
+    //if (groupScan.getScanSpec().getRSFilter() != null) {
+    //  return;
+    //}
 
     LogicalExpression conditionExp = DrillOptiq.toDrill(new DrillParseContext(PrelUtil.getPlannerSettings(call.getPlanner())), scan, condition);
     RSFilterGenerator generator = new RSFilterGenerator(groupScan, conditionExp);
