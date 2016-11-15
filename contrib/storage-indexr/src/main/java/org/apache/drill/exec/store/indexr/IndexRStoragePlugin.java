@@ -139,7 +139,10 @@ public class IndexRStoragePlugin extends AbstractStoragePlugin {
   public Set<? extends RelOptRule> getPhysicalOptimizerRules(OptimizerRulesContext optimizerRulesContext) {
     boolean enableRSFilter = pluginConfig.isEnableRSFilter();
     if (enableRSFilter) {
-      return Sets.newHashSet(IndexRPushDownRSFilter.MatchFilterScan, IndexRPushDownRSFilter.MatchFilterProjectScan);
+      return Sets.newHashSet(
+          IndexRPushDownRSFilter.FilterScan,
+          IndexRPushDownRSFilter.FilterProjectScan,
+          IndexRPushDownRSFilter.HashJoinScan);
     } else {
       return Collections.emptySet();
     }
@@ -159,6 +162,6 @@ public class IndexRStoragePlugin extends AbstractStoragePlugin {
   public AbstractGroupScan getPhysicalScan(String userName, JSONOptions selection, List<SchemaPath> columns) throws IOException {
     IndexRScanSpec scanSpec = selection.getListWith(new ObjectMapper(), new TypeReference<IndexRScanSpec>() {
     });
-    return new IndexRGroupScan(this, scanSpec, columns, UUID.randomUUID().toString());
+    return new IndexRGroupScan(userName, this, scanSpec, columns, UUID.randomUUID().toString());
   }
 }

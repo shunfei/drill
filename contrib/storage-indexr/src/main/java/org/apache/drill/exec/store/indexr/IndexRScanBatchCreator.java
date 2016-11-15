@@ -155,8 +155,6 @@ public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
       IndexRStoragePluginConfig pluginConfig = plugin.getConfig();
       IndexRSubScanSpec spec = subScan.getSpec();
 
-//      MySegmentOpener segmentOpener = new MySegmentOpener(segmentPool, indexMemCache, packMemCache);
-
       Map<Integer, List<SingleWork>> assigmentMap = SegmentAssigner.assignBalance(//
           plugin.context().getEndpoint().getAddress(),
           spec.scanCount, //

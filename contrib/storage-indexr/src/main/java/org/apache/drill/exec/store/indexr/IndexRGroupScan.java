@@ -85,18 +85,22 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
   private Map<Integer, FragmentAssignment> assignments;
 
+  private Long scanRowCount;
+
   @JsonCreator
-  public IndexRGroupScan(@JsonProperty("indexrScanSpec") IndexRScanSpec scanSpec,//
-                         @JsonProperty("storage") IndexRStoragePluginConfig storagePluginConfig,//
-                         @JsonProperty("columns") List<SchemaPath> columns,//
-                         @JsonProperty("scanId") String scanId,//
-                         @JacksonInject StoragePluginRegistry pluginRegistry//
+  public IndexRGroupScan(
+      @JsonProperty("userName") String userName,//
+      @JsonProperty("indexrScanSpec") IndexRScanSpec scanSpec,//
+      @JsonProperty("storage") IndexRStoragePluginConfig storagePluginConfig,//
+      @JsonProperty("columns") List<SchemaPath> columns,//
+      @JsonProperty("scanId") String scanId,//
+      @JacksonInject StoragePluginRegistry pluginRegistry//
   ) throws IOException, ExecutionSetupException {
-    this((IndexRStoragePlugin) pluginRegistry.getPlugin(storagePluginConfig), scanSpec, columns, scanId);
+    this(userName, (IndexRStoragePlugin) pluginRegistry.getPlugin(storagePluginConfig), scanSpec, columns, scanId);
   }
 
-  public IndexRGroupScan(IndexRStoragePlugin plugin, IndexRScanSpec scanSpec, List<SchemaPath> columns, String scanId) {
-    super((String) null);
+  public IndexRGroupScan(String userName, IndexRStoragePlugin plugin, IndexRScanSpec scanSpec, List<SchemaPath> columns, String scanId) {
+    super(userName);
     this.plugin = plugin;
     this.scanSpec = scanSpec;
     this.columns = columns;
@@ -110,7 +114,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
     super(that);
     this.scanId = that.scanId;
     this.columns = that.columns;
-    this.scanSpec = that.scanSpec;
+    this.scanSpec = that.scanSpec.clone();
     this.plugin = that.plugin;
   }
 
@@ -119,6 +123,12 @@ public class IndexRGroupScan extends AbstractGroupScan {
     IndexRGroupScan newScan = new IndexRGroupScan(this);
     newScan.columns = columns;
     return newScan;
+  }
+
+  @Override
+  public PhysicalOperator getNewWithChildren(List<PhysicalOperator> children) throws ExecutionSetupException {
+    Preconditions.checkArgument(children.isEmpty());
+    return new IndexRGroupScan(this);
   }
 
   private int getMinPw() {
@@ -270,18 +280,29 @@ public class IndexRGroupScan extends AbstractGroupScan {
     return colCount;
   }
 
-  private long rowCount(HybridTable table) throws Exception {
-    long rowCount = 0;
+  private long calScanRowCount(HybridTable table) throws Exception {
+    long scanRowCount = 0;
+    long totalRowCount = 0;
     RCOperator filter = scanSpec.getRSFilter();
     List<SegmentFd> segmentFds = table.segmentPool().all();
     logger.debug("segmentFds: {}", segmentFds.size());
     for (SegmentFd fd : segmentFds) {
       InfoSegment infoSegment = fd.info();
+      totalRowCount += infoSegment.rowCount();
       if (filter == null || filter.roughCheckOnColumn(infoSegment) != RSValue.None) {
-        rowCount += infoSegment.rowCount();
+        scanRowCount += infoSegment.rowCount();
       }
     }
-    return rowCount;
+    if (filter != null
+        && scanRowCount == totalRowCount
+        && scanRowCount > 0) {
+      // We definitely want the scan node with rcFilter to win in query plan competition,
+      // even if it looks useless in this level, i.e. roughCheckOnColumn.
+      // It could make different in next level, i.e. roughCheckOnPack.
+      return scanRowCount - 1;
+    } else {
+      return scanRowCount;
+    }
   }
 
   @JsonIgnore
@@ -345,34 +366,26 @@ public class IndexRGroupScan extends AbstractGroupScan {
         columns);
   }
 
-  private Long rowCount;
-
   @Override
   public ScanStats getScanStats() {
     try {
       HybridTable table = plugin.indexRNode().getTablePool().get(scanSpec.getTableName());
-      if (rowCount == null) {
-        rowCount = rowCount(table);
+      if (scanRowCount == null) {
+        scanRowCount = calScanRowCount(table);
       }
-      logger.debug("=============== getScanStats, rowCount: {}", rowCount);
-      if (rowCount <= 100000 && table.segmentPool().realtimeHosts().size() > 0) {
+      logger.debug("=============== getScanStats, scanRowCount: {}", scanRowCount);
+      if (scanRowCount <= 100000 && table.segmentPool().realtimeHosts().size() > 0) {
         // We must make the planner use exchange which can spreads the query fragments among nodes.
         // Otherwise realtime segments won't be able to query.
         // We keep the scan rows over a threshold to acheive this.
         long useRowCount = 100000;
         return new ScanStats(ScanStats.GroupScanProperty.NO_EXACT_ROW_COUNT, useRowCount, 1, useRowCount * colCount(table));
       } else {
-        return new ScanStats(ScanStats.GroupScanProperty.EXACT_ROW_COUNT, rowCount, 1, rowCount * colCount(table));
+        return new ScanStats(ScanStats.GroupScanProperty.EXACT_ROW_COUNT, scanRowCount, 1, scanRowCount * colCount(table));
       }
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
-  }
-
-  @Override
-  public PhysicalOperator getNewWithChildren(List<PhysicalOperator> children) throws ExecutionSetupException {
-    Preconditions.checkArgument(children.isEmpty());
-    return new IndexRGroupScan(this);
   }
 
   @Override

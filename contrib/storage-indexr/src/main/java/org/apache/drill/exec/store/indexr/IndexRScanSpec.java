@@ -19,17 +19,23 @@ package org.apache.drill.exec.store.indexr;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonSetter;
 
 import io.indexr.segment.rc.RCOperator;
 
 public class IndexRScanSpec {
   private final String tableName;
-  private RCOperator rsFilter;
+  private final RCOperator rsFilter;
 
   @JsonCreator
-  public IndexRScanSpec(@JsonProperty("tableName") String tableName) {
+  public IndexRScanSpec(
+      @JsonProperty("tableName") String tableName,
+      @JsonProperty("rsFilter") RCOperator rsFilter) {
     this.tableName = tableName;
+    this.rsFilter = rsFilter;
+  }
+
+  public IndexRScanSpec(String tableName){
+    this(tableName, null);
   }
 
   @JsonProperty("tableName")
@@ -42,9 +48,9 @@ public class IndexRScanSpec {
     return rsFilter;
   }
 
-  @JsonSetter("rsFilter")
-  public void setRSFilter(RCOperator rsFilter) {
-    this.rsFilter = rsFilter;
+  @Override
+  protected IndexRScanSpec clone() {
+    return new IndexRScanSpec(tableName, rsFilter);
   }
 
   @Override

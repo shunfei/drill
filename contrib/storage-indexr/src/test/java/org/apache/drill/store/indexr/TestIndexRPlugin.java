@@ -36,8 +36,10 @@ public class TestIndexRPlugin extends BaseTestQuery {
 
     String sql = "select A.user_id, sum(A.clicks), sum(B.impressions) as aa from indexr.campaign as A join indexr.campaign as B on A.channel_id = B.channel_id " +
       "where " +
-      "A.campaign_id in (0, 51409, 54638,31460, 50688, 51087, 55) and (B.user_id > 10000 or B.spot_id < 100000) " +
+      "A.campaign_id = 100000000 and B.user_id = 20 " +
       "group by A.user_id order by aa desc limit 100";
+
+    //sql = "select user_id from indexr.campaign where channel_id in (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21) and user_id > 10 limit 10";
 
     //sql = "select user_id, sum(clicks), sum(impressions) as aa from indexr.campaign where " +
     //  "campaign_id in (0, 51409, 54638,31460, 50688, 51087, 55) or user_id > 10000 " +
