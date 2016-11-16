@@ -70,11 +70,15 @@ public class IndexRPushDownRSFilter {
         scanSpec.getTableName(),
         rsFilter);
 
+    // We also need to update the old scan node with new scanSpec, prevent too many recaculations.
+    groupScan.setScanSpec(newScanSpec);
+
     IndexRGroupScan newGroupScan = new IndexRGroupScan(
         groupScan.getUserName(),
         groupScan.getStoragePlugin(),
         newScanSpec,
         groupScan.getColumns(),
+        groupScan.getLimitScanRows(),
         groupScan.getScanId());
 
     ScanPrel newScanPrel = ScanPrel.create(scan, filter.getTraitSet(), newGroupScan, scan.getRowType());
@@ -113,24 +117,22 @@ public class IndexRPushDownRSFilter {
   };
 
   public static StoragePluginOptimizerRule HashJoinScan = new StoragePluginOptimizerRule(
-      RelOptHelper.any(HashJoinPrel.class)
-      //RelOptRule.operand(
-      //    HashJoinPrel.class,
-      //    null,
-      //    join -> {
-      //      List<RelNode> children = join.getInputs();
-      //      //SelectionVectorRemoverPrel
-      //      return false;
-      //    },
-      //  RelOptRule.any()
-      //)
+      RelOptHelper.some(HashJoinPrel.class,
+          RelOptHelper.some(ProjectPrel.class,
+              RelOptHelper.any(ScanPrel.class)),
+          RelOptHelper.some(BroadcastExchangePrel.class,
+              RelOptHelper.some(HashAggPrel.class,
+                  RelOptHelper.any(ValuesPrel.class))))
+
       //RelOptHelper.some(HashJoinPrel.class,
-      //    RelOptHelper.any(ScanPrel.class),
-      //    RelOptHelper.any(HashAggPrel.class)
-      //)
-      , "IndexRHashJoinFilterScan") {
+      //    RelOptHelper.some(ProjectPrel.class,
+      //        RelOptHelper.any(ScanPrel.class)),
+      //    RelOptHelper.some(HashAggPrel.class,
+      //        RelOptHelper.any(ValuesPrel.class)))
+      , "JoinFromIn") {
     @Override
     public void onMatch(RelOptRuleCall call) {
+      log.debug("=========onMatch JoinFromIn");
       if (true) {
         return;
       }

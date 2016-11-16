@@ -36,6 +36,7 @@ import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.exec.physical.EndpointAffinity;
 import org.apache.drill.exec.physical.PhysicalOperatorSetupException;
 import org.apache.drill.exec.physical.base.AbstractGroupScan;
+import org.apache.drill.exec.physical.base.GroupScan;
 import org.apache.drill.exec.physical.base.PhysicalOperator;
 import org.apache.drill.exec.physical.base.ScanStats;
 import org.apache.drill.exec.physical.base.SubScan;
@@ -74,18 +75,20 @@ public class IndexRGroupScan extends AbstractGroupScan {
   private static final Comparator<EndpointAffinity> eaDescCmp = (ea1, ea2) -> Double.compare(ea2.getAffinity(), ea1.getAffinity());
 
   private final IndexRStoragePlugin plugin;
-  private final IndexRScanSpec scanSpec;
   private final String scanId;
-  private List<SchemaPath> columns;
+  private final List<SchemaPath> columns;
+  private final long limitScanRows;
 
+  // Those should only changed by #setScanSpec
+  private IndexRScanSpec scanSpec;
+  private long scanRowCount;
+
+  // Those should be recalculated in an new GroupScan.
   private Integer minPw;
   private List<ScanCompleteWork> historyWorks;
   private ListMultimap<DrillbitEndpoint, RangeWork> realtimeWorks;
   private List<EndpointAffinity> endpointAffinities;
-
   private Map<Integer, FragmentAssignment> assignments;
-
-  private Long scanRowCount;
 
   @JsonCreator
   public IndexRGroupScan(
@@ -93,42 +96,95 @@ public class IndexRGroupScan extends AbstractGroupScan {
       @JsonProperty("indexrScanSpec") IndexRScanSpec scanSpec,//
       @JsonProperty("storage") IndexRStoragePluginConfig storagePluginConfig,//
       @JsonProperty("columns") List<SchemaPath> columns,//
+      @JsonProperty("limitScanRows") long limitScanRows,
       @JsonProperty("scanId") String scanId,//
       @JacksonInject StoragePluginRegistry pluginRegistry//
   ) throws IOException, ExecutionSetupException {
-    this(userName, (IndexRStoragePlugin) pluginRegistry.getPlugin(storagePluginConfig), scanSpec, columns, scanId);
+    this(userName,
+        (IndexRStoragePlugin) pluginRegistry.getPlugin(storagePluginConfig),
+        scanSpec,
+        columns,
+        limitScanRows,
+        scanId);
   }
 
-  public IndexRGroupScan(String userName, IndexRStoragePlugin plugin, IndexRScanSpec scanSpec, List<SchemaPath> columns, String scanId) {
+  public IndexRGroupScan(String userName,
+                         IndexRStoragePlugin plugin,
+                         IndexRScanSpec scanSpec,
+                         List<SchemaPath> columns,
+                         long limitScanRows,
+                         String scanId) {
     super(userName);
     this.plugin = plugin;
     this.scanSpec = scanSpec;
-    this.columns = columns;
     this.scanId = scanId;
+    this.columns = columns;
+    this.limitScanRows = limitScanRows;
+
+    this.scanRowCount = calScanRowCount(plugin, scanSpec, limitScanRows);
   }
 
   /**
    * Private constructor, used for cloning.
    */
-  private IndexRGroupScan(IndexRGroupScan that) {
+  private IndexRGroupScan(IndexRGroupScan that,
+                          List<SchemaPath> columns,
+                          long limitScanRows,
+                          long scanRowCount) {
     super(that);
-    this.scanId = that.scanId;
-    this.columns = that.columns;
-    this.scanSpec = that.scanSpec.clone();
     this.plugin = that.plugin;
+    this.scanSpec = that.scanSpec.clone();
+    this.scanId = that.scanId;
+
+    this.columns = columns;
+    this.limitScanRows = limitScanRows;
+    this.scanRowCount = scanRowCount;
+  }
+
+  public void setScanSpec(IndexRScanSpec scanSpec) {
+    this.scanSpec = scanSpec;
+    this.scanRowCount = calScanRowCount(plugin, scanSpec, this.limitScanRows);
   }
 
   @Override
   public IndexRGroupScan clone(List<SchemaPath> columns) {
-    IndexRGroupScan newScan = new IndexRGroupScan(this);
-    newScan.columns = columns;
-    return newScan;
+    return new IndexRGroupScan(
+        this,
+        columns,
+        this.limitScanRows,
+        this.scanRowCount);
   }
 
   @Override
   public PhysicalOperator getNewWithChildren(List<PhysicalOperator> children) throws ExecutionSetupException {
     Preconditions.checkArgument(children.isEmpty());
-    return new IndexRGroupScan(this);
+    return new IndexRGroupScan(
+        this,
+        this.columns,
+        this.limitScanRows,
+        this.scanRowCount);
+  }
+
+  @Override
+  public GroupScan applyLimit(long maxRecords) {
+    if (this.limitScanRows != Long.MAX_VALUE) {
+      return null;
+    }
+    logger.debug("=============== applyLimit maxRecords:{}", maxRecords);
+    try {
+      long newScanRowCount = calScanRowCount(plugin, scanSpec, maxRecords);
+      if (newScanRowCount < this.scanRowCount) {
+        return new IndexRGroupScan(
+            this,
+            this.columns,
+            maxRecords,
+            newScanRowCount);
+      } else {
+        return null;
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private int getMinPw() {
@@ -185,12 +241,16 @@ public class IndexRGroupScan extends AbstractGroupScan {
       } else {
         logger.debug("rs filter ignore segment {}", infoSegment.name());
       }
+
+      if (validRowCount >= limitScanRows) {
+        break;
+      }
     }
 
     if (logger.isInfoEnabled()) {
       double passRate = totalRowCount == 0 ? 0.0 : ((double) validRowCount) / totalRowCount;
       passRate = Math.min(passRate, 1.0);
-      logger.info("Pass rate: {}, scan row: {}", String.format("%.2f%%", (float) (passRate * 100)), validRowCount);
+      logger.info("=============== calScanWorks Pass rate: {}, scan row: {}", String.format("%.2f%%", (float) (passRate * 100)), validRowCount);
     }
 
     Map<String, DrillbitEndpoint> hostEndpointMap = new HashMap<>();
@@ -280,104 +340,55 @@ public class IndexRGroupScan extends AbstractGroupScan {
     return colCount;
   }
 
-  private long calScanRowCount(HybridTable table) throws Exception {
-    long scanRowCount = 0;
-    long totalRowCount = 0;
-    RCOperator filter = scanSpec.getRSFilter();
-    List<SegmentFd> segmentFds = table.segmentPool().all();
-    logger.debug("segmentFds: {}", segmentFds.size());
-    for (SegmentFd fd : segmentFds) {
-      InfoSegment infoSegment = fd.info();
-      totalRowCount += infoSegment.rowCount();
-      if (filter == null || filter.roughCheckOnColumn(infoSegment) != RSValue.None) {
-        scanRowCount += infoSegment.rowCount();
-      }
-    }
-    if (filter != null
-        && scanRowCount == totalRowCount
-        && scanRowCount > 0) {
-      // We definitely want the scan node with rcFilter to win in query plan competition,
-      // even if it looks useless in this level, i.e. roughCheckOnColumn.
-      // It could make different in next level, i.e. roughCheckOnPack.
-      return scanRowCount - 1;
-    } else {
-      return scanRowCount;
-    }
-  }
-
-  @JsonIgnore
-  public IndexRStoragePlugin getStoragePlugin() {
-    return plugin;
-  }
-
-  @JsonProperty("storage")
-  public IndexRStoragePluginConfig getStorageConfig() {
-    return plugin.getConfig();
-  }
-
-  @JsonProperty("columns")
-  public List<SchemaPath> getColumns() {
-    return columns;
-  }
-
-  @JsonProperty("indexrScanSpec")
-  public IndexRScanSpec getScanSpec() {
-    return scanSpec;
-  }
-
-  @JsonProperty("scanId")
-  public String getScanId() {
-    return scanId;
-  }
-
-  @Override
-  @JsonIgnore
-  public boolean canPushdownProjects(List<SchemaPath> columns) {
-    return true;
-  }
-
-  @Override
-  public int getMaxParallelizationWidth() {
-    int perNode = Math.max(plugin.getConfig().getMaxScanThreadsPerNode(), 1);
-    return plugin.context().getBits().size() * perNode;
-  }
-
-  @Override
-  public int getMinParallelizationWidth() {
+  private static long calScanRowCount(IndexRStoragePlugin plugin, IndexRScanSpec scanSpec, long limitScanRows) {
+    HybridTable table = plugin.indexRNode().getTablePool().get(scanSpec.getTableName());
+    RCOperator rsFilter = scanSpec.getRSFilter();
     try {
-      int min = Math.max(1, getMinPw());
-      logger.debug("=============== getMinParallelizationWidth {}", min);
-      return min;
-    } catch (Exception e) {
+      long scanRowCount = 0;
+      long totalRowCount = 0;
+      List<SegmentFd> segmentFds = table.segmentPool().all();
+      for (SegmentFd fd : segmentFds) {
+        InfoSegment infoSegment = fd.info();
+        totalRowCount += infoSegment.rowCount();
+        if (rsFilter == null || rsFilter.roughCheckOnColumn(infoSegment) != RSValue.None) {
+          scanRowCount += infoSegment.rowCount();
+        }
+        if (scanRowCount >= limitScanRows) {
+          break;
+        }
+      }
+      if (rsFilter != null
+          && scanRowCount == totalRowCount
+          && scanRowCount > 0) {
+
+        // We definitely want the scan node with rcFilter to win in query plan competition,
+        // so that we trick the planner with less scan rows.
+        // The rsFilter is good, even if it looks useless in this level, i.e. roughCheckOnColumn.
+        // It could make different in next level, i.e. roughCheckOnPack.
+
+        scanRowCount = scanRowCount - 1;
+      }
+
+      logger.debug("=============== calScanRowCount segmentFds: {}, scanRowCount: {}", segmentFds.size(), scanRowCount);
+
+      return scanRowCount;
+    } catch (IOException e) {
       throw new RuntimeException(e);
     }
-  }
-
-  @Override
-  public String getDigest() {
-    return toString();
-  }
-
-  @Override
-  public String toString() {
-    return String.format("IndexRGroupScan@%s{Spec=%s, columns=%s}",
-        Integer.toHexString(super.hashCode()),
-        scanSpec,
-        columns);
   }
 
   @Override
   public ScanStats getScanStats() {
     try {
       HybridTable table = plugin.indexRNode().getTablePool().get(scanSpec.getTableName());
-      if (scanRowCount == null) {
-        scanRowCount = calScanRowCount(table);
-      }
       logger.debug("=============== getScanStats, scanRowCount: {}", scanRowCount);
       if (scanRowCount <= 100000 && table.segmentPool().realtimeHosts().size() > 0) {
+
         // We must make the planner use exchange which can spreads the query fragments among nodes.
         // Otherwise realtime segments won't be able to query.
         // We keep the scan rows over a threshold to acheive this.
+        // TODO Somebody please get a better idea ...
+
         long useRowCount = 100000;
         return new ScanStats(ScanStats.GroupScanProperty.NO_EXACT_ROW_COUNT, useRowCount, 1, useRowCount * colCount(table));
       } else {
@@ -478,5 +489,84 @@ public class IndexRGroupScan extends AbstractGroupScan {
           ", endpointWorks=" + endpointWorks +
           '}';
     }
+  }
+
+  @Override
+  @JsonIgnore
+  public int getMaxParallelizationWidth() {
+    int perNode = Math.max(plugin.getConfig().getMaxScanThreadsPerNode(), 1);
+    return plugin.context().getBits().size() * perNode;
+  }
+
+  @Override
+  @JsonIgnore
+  public int getMinParallelizationWidth() {
+    try {
+      int min = Math.max(1, getMinPw());
+      logger.debug("=============== getMinParallelizationWidth {}", min);
+      return min;
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  // =================================
+  // Fields and simple methods overrided.
+
+  @JsonIgnore
+  public IndexRStoragePlugin getStoragePlugin() {
+    return plugin;
+  }
+
+  @JsonProperty("storage")
+  public IndexRStoragePluginConfig getStorageConfig() {
+    return plugin.getConfig();
+  }
+
+  @JsonProperty("columns")
+  public List<SchemaPath> getColumns() {
+    return columns;
+  }
+
+  @JsonProperty("indexrScanSpec")
+  public IndexRScanSpec getScanSpec() {
+    return scanSpec;
+  }
+
+  @JsonProperty("scanId")
+  public String getScanId() {
+    return scanId;
+  }
+
+  @JsonProperty("limitScanRows")
+  public long getLimitScanRows() {
+    return limitScanRows;
+  }
+
+  @Override
+  @JsonIgnore
+  public boolean canPushdownProjects(List<SchemaPath> columns) {
+    return true;
+  }
+
+  @Override
+  @JsonIgnore
+  public boolean supportsLimitPushdown() {
+    return true;
+  }
+
+  @Override
+  @JsonIgnore
+  public String getDigest() {
+    return toString();
+  }
+
+  @Override
+  @JsonIgnore
+  public String toString() {
+    return String.format("IndexRGroupScan@%s{Spec=%s, columns=%s}",
+        Integer.toHexString(super.hashCode()),
+        scanSpec,
+        columns);
   }
 }
