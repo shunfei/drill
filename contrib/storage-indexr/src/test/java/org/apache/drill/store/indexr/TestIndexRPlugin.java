@@ -39,15 +39,15 @@ public class TestIndexRPlugin extends BaseTestQuery {
         "A.campaign_id = 100000000 and B.user_id = 20 " +
         "group by A.user_id order by aa desc limit 100";
 
-    sql = "select user_id from indexr.campaign where user_id in (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20) and campaign_id > 10";
+    //sql = "select user_id from indexr.campaign where user_id in (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20) and campaign_id > 10";
 
-    //sql = "select user_id from indexr.campaign limit 10";
+    sql = "select user_id from indexr.campaign limit 10";
 
     //sql = "select user_id, sum(clicks), sum(impressions) as aa from indexr.campaign where " +
     //  "campaign_id in (0, 51409, 54638,31460, 50688, 51087, 55) or user_id > 10000 " +
     //  "group by user_id order by aa desc limit 10";
-    test("explain plan for " + sql);
-    //test(sql);
+    //test("explain plan for " + sql);
+    test(sql);
   }
 
 }

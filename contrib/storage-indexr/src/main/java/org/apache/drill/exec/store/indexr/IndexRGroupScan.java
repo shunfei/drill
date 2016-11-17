@@ -72,6 +72,8 @@ import io.indexr.util.Trick;
 public class IndexRGroupScan extends AbstractGroupScan {
   private static final Logger logger = LoggerFactory.getLogger(IndexRGroupScan.class);
   private static final double RT_COST_RATE = 3.5;
+  private static final int MIN_PACK_SPLIT_STEP = 10;
+  private static final int MAX_WORK_UNIT = 120;
   private static final Comparator<EndpointAffinity> eaDescCmp = (ea1, ea2) -> Double.compare(ea2.getAffinity(), ea1.getAffinity());
 
   private final IndexRStoragePlugin plugin;
@@ -226,7 +228,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
     long totalRowCount = 0;
     long validRowCount = 0;
     int validPackCount = 0;
-    List<InfoSegment> usedSegments = new ArrayList<>(Math.max(allSegments.size() / 2, 48));
+    List<InfoSegment> usedSegments = new ArrayList<>(Math.max(allSegments.size() / 2, 100));
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
       totalRowCount += infoSegment.rowCount();
@@ -250,7 +252,10 @@ public class IndexRGroupScan extends AbstractGroupScan {
     if (logger.isInfoEnabled()) {
       double passRate = totalRowCount == 0 ? 0.0 : ((double) validRowCount) / totalRowCount;
       passRate = Math.min(passRate, 1.0);
-      logger.info("=============== calScanWorks Pass rate: {}, scan row: {}", String.format("%.2f%%", (float) (passRate * 100)), validRowCount);
+      logger.info("=============== calScanWorks limitScanRows: {}, Pass rate: {}, scan row: {}",
+          limitScanRows,
+          String.format("%.2f%%", (float) (passRate * 100)),
+          validRowCount);
     }
 
     Map<String, DrillbitEndpoint> hostEndpointMap = new HashMap<>();
@@ -258,7 +263,14 @@ public class IndexRGroupScan extends AbstractGroupScan {
       hostEndpointMap.put(endpoint.getAddress(), endpoint);
     }
 
-    int splitStep = validPackCount > 1000 ? validPackCount / 1000 : 1;
+    boolean smallFetch = usedSegments.size() > 0
+        && limitScanRows <= usedSegments.get(0).rowCount()
+        && limitScanRows <= MIN_PACK_SPLIT_STEP * DataPack.MAX_COUNT;
+
+    int packSplitStep = Math.max(validPackCount / MAX_WORK_UNIT, MIN_PACK_SPLIT_STEP);
+    if (smallFetch) {
+      packSplitStep = Math.min((int) (limitScanRows / DataPack.MAX_COUNT + 1), packSplitStep);
+    }
     int colCount = colCount(table);
 
     boolean isCompress = getStorageConfig().isCompress();
@@ -283,12 +295,16 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
         affinities.putOrAdd(endpoint, bytes, bytes);
         realtimeWorks.put(endpoint, new SingleWork(segment.name(), -1));
+
+        if (smallFetch) {
+          break;
+        }
       } else {
         // Historical segments.
         int segPackCount = segment.packCount();
         int startPackId = 0;
         while (startPackId < segPackCount) {
-          int endPackId = Math.min(startPackId + splitStep, segPackCount);
+          int endPackId = Math.min(startPackId + packSplitStep, segPackCount);
           int scanPackCount = endPackId - startPackId;
 
           long rowCount = scanPackCount * DataPack.MAX_COUNT;
@@ -305,6 +321,11 @@ public class IndexRGroupScan extends AbstractGroupScan {
           historyWorks.add(new ScanCompleteWork(segment.name(), startPackId, endPackId, bytes, endpointByteMap));
 
           startPackId = endPackId;
+
+          if (smallFetch) {
+            Preconditions.checkState(rowCount >= limitScanRows);
+            break;
+          }
         }
       }
     }
@@ -323,8 +344,10 @@ public class IndexRGroupScan extends AbstractGroupScan {
     this.realtimeWorks = realtimeWorks;
     this.endpointAffinities = endpointAffinities;
 
-    logger.debug("=============== historyWorks {}", historyWorks);
-    logger.debug("=============== realtimeWorks {}", realtimeWorks);
+    logger.debug("=============== calScanWorks minPw {}", minPw);
+    logger.debug("=============== calScanWorks historyWorks {}", historyWorks);
+    logger.debug("=============== calScanWorks realtimeWorks {}", realtimeWorks);
+    logger.debug("=============== calScanWorks endpointAffinities {}", endpointAffinities);
   }
 
   private int colCount(HybridTable table) {
@@ -450,7 +473,10 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
       this.assignments = assignments;
 
-      logger.debug("=====================  applyAssignments endpointToWorks: {}", endpointToWorks);
+      logger.debug("=====================  applyAssignments endpoints:{}", endpoints);
+      logger.debug("=====================  applyAssignments endpointToWorks:{}", endpointToWorks);
+      logger.debug("=====================  applyAssignments assignments:{}", assignments);
+
     } catch (Exception e) {
       throw new PhysicalOperatorSetupException(e);
     }
