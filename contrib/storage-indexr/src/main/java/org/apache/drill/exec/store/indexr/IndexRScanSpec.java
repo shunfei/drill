@@ -34,7 +34,7 @@ public class IndexRScanSpec {
     this.rsFilter = rsFilter;
   }
 
-  public IndexRScanSpec(String tableName){
+  public IndexRScanSpec(String tableName) {
     this(tableName, null);
   }
 
@@ -46,11 +46,6 @@ public class IndexRScanSpec {
   @JsonProperty("rsFilter")
   public RCOperator getRSFilter() {
     return rsFilter;
-  }
-
-  @Override
-  protected IndexRScanSpec clone() {
-    return new IndexRScanSpec(tableName, rsFilter);
   }
 
   @Override

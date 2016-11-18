@@ -53,11 +53,9 @@ import io.indexr.segment.pack.PackMemCache;
 import io.indexr.server.HybridTable;
 
 public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
-  static final Logger logger = LoggerFactory.getLogger(IndexRScanBatchCreator.class);
+  private static final Logger logger = LoggerFactory.getLogger(IndexRScanBatchCreator.class);
 
-  private final Object assignLock = new Object();
-
-  private final Cache<String, Assignment> assignmentCache = CacheBuilder.newBuilder()//
+  private static final Cache<String, Assignment> assignmentCache = CacheBuilder.newBuilder()//
       .initialCapacity(1024)//
       .expireAfterAccess(5, TimeUnit.MINUTES)//
       .maximumSize(2048)//

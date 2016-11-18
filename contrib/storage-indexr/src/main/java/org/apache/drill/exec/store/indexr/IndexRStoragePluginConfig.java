@@ -32,6 +32,7 @@ public class IndexRStoragePluginConfig extends StoragePluginConfigBase {
   public static final String NAME = "indexr";
 
   private final int maxScanThreadsPerNode;
+  private final float resourceReserveRate;
   private final boolean enableRSFilter;
   private final boolean enableMemCache;
   private final float singleQueryMemCacheThreshold;
@@ -39,11 +40,13 @@ public class IndexRStoragePluginConfig extends StoragePluginConfigBase {
 
   @JsonCreator
   public IndexRStoragePluginConfig(@JsonProperty("maxScanThreadsPerNode") Integer maxScanThreadsPerNode,//
+                                   @JsonProperty("resourceReserveRate") Float resourceReserveRate,//
                                    @JsonProperty("enableRSFilter") Boolean enableRSFilter,//
                                    @JsonProperty("enableMemCache") Boolean enableMemCache,//
                                    @JsonProperty("singleQueryMemCacheThreshold") Float singleQueryMemCacheThreshold,//
                                    @JsonProperty("isCompress") Boolean isCompress) {
     this.maxScanThreadsPerNode = maxScanThreadsPerNode != null && maxScanThreadsPerNode > 0 ? maxScanThreadsPerNode : 10;
+    this.resourceReserveRate = resourceReserveRate != null && resourceReserveRate > 0 ? resourceReserveRate : 0.35f;
     this.enableRSFilter = enableRSFilter != null ? enableRSFilter : true;
 
     this.enableMemCache = enableMemCache != null ? enableMemCache : true;
@@ -54,6 +57,11 @@ public class IndexRStoragePluginConfig extends StoragePluginConfigBase {
   @JsonProperty("maxScanThreadsPerNode")
   public int getMaxScanThreadsPerNode() {
     return maxScanThreadsPerNode;
+  }
+
+  @JsonProperty("resourceReserveRate")
+  public float getResourceReserveRate() {
+    return resourceReserveRate;
   }
 
   @JsonProperty("enableRSFilter")
@@ -84,6 +92,7 @@ public class IndexRStoragePluginConfig extends StoragePluginConfigBase {
     IndexRStoragePluginConfig that = (IndexRStoragePluginConfig) o;
 
     if (maxScanThreadsPerNode != that.maxScanThreadsPerNode) return false;
+    if (Float.compare(that.resourceReserveRate, resourceReserveRate) != 0) return false;
     if (enableRSFilter != that.enableRSFilter) return false;
     if (enableMemCache != that.enableMemCache) return false;
     if (Float.compare(that.singleQueryMemCacheThreshold, singleQueryMemCacheThreshold) != 0)
@@ -95,6 +104,7 @@ public class IndexRStoragePluginConfig extends StoragePluginConfigBase {
   @Override
   public int hashCode() {
     int result = maxScanThreadsPerNode;
+    result = 31 * result + (resourceReserveRate != +0.0f ? Float.floatToIntBits(resourceReserveRate) : 0);
     result = 31 * result + (enableRSFilter ? 1 : 0);
     result = 31 * result + (enableMemCache ? 1 : 0);
     result = 31 * result + (singleQueryMemCacheThreshold != +0.0f ? Float.floatToIntBits(singleQueryMemCacheThreshold) : 0);
