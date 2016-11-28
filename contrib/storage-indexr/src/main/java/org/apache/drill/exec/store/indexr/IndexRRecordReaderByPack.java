@@ -22,6 +22,7 @@ import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.exec.ops.OperatorContext;
 import org.apache.drill.exec.physical.impl.OutputMutator;
+import org.apache.drill.exec.vector.BaseDataValueVector;
 import org.apache.drill.exec.vector.BigIntVector;
 import org.apache.drill.exec.vector.Float4Vector;
 import org.apache.drill.exec.vector.Float8Vector;
@@ -37,14 +38,20 @@ import java.util.List;
 import java.util.Map;
 
 import io.indexr.data.BytePiece;
+import io.indexr.data.DoubleSetter;
+import io.indexr.data.FloatSetter;
+import io.indexr.data.IntSetter;
+import io.indexr.data.LongSetter;
+import io.indexr.io.ByteSlice;
 import io.indexr.segment.ColumnType;
-import io.indexr.segment.DPValues;
 import io.indexr.segment.Segment;
 import io.indexr.segment.SegmentSchema;
 import io.indexr.segment.helper.SegmentOpener;
 import io.indexr.segment.helper.SingleWork;
 import io.indexr.segment.pack.DataPack;
+import io.indexr.segment.pack.Version;
 import io.indexr.util.MemoryUtil;
+import io.netty.buffer.DrillBuf;
 
 public class IndexRRecordReaderByPack extends IndexRRecordReader {
   private static final Logger log = LoggerFactory.getLogger(IndexRRecordReaderByPack.class);
@@ -94,7 +101,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
       curStepId++;
 
       Segment segment = segmentMap.get(stepWork.segment());
-      int read = read(segment, stepWork.packId(), 0);
+      int read = read(segment, stepWork.packId());
       for (ProjectedColumnInfo info : projectedColumnInfos) {
         info.valueVector.getMutator().setValueCount(read);
       }
@@ -105,54 +112,73 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
     }
   }
 
-  private int read(Segment segment, int packId, int preRowCount) throws Exception {
+  private int read(Segment segment, int packId) throws Exception {
     int read = -1;
     for (ProjectedColumnInfo info : projectedColumnInfos) {
       Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
       if (columnId == null) {
         throw new RuntimeException(String.format("column %s not found in %s", info.columnSchema, segment.schema()));
       }
-      DPValues dataPack = segment.column(columnId).pack(packId);
-
-      // Stupid code.
-      int fromRowId = 0;
+      byte dataType = info.columnSchema.dataType;
+      DataPack dataPack = (DataPack) segment.column(columnId).pack(packId);
       int count = dataPack.count();
       read = count;
-      int realOffset = preRowCount - fromRowId;
 
-      switch (info.columnSchema.dataType) {
-        case ColumnType.INT: {
-          IntVector.Mutator mutator = (IntVector.Mutator) info.valueVector.getMutator();
-          dataPack.foreach(fromRowId, count, (int id, int v) -> mutator.setSafe(realOffset + id, v));
-          break;
+      if (dataPack.version() == Version.VERSION_0_ID) {
+        switch (dataType) {
+          case ColumnType.INT: {
+            IntVector.Mutator mutator = (IntVector.Mutator) info.valueVector.getMutator();
+            dataPack.foreach(0, count, (IntSetter) mutator::set);
+            break;
+          }
+          case ColumnType.LONG: {
+            BigIntVector.Mutator mutator = (BigIntVector.Mutator) info.valueVector.getMutator();
+            dataPack.foreach(0, count, (LongSetter) mutator::set);
+            break;
+          }
+          case ColumnType.FLOAT: {
+            Float4Vector.Mutator mutator = (Float4Vector.Mutator) info.valueVector.getMutator();
+            dataPack.foreach(0, count, (FloatSetter) mutator::set);
+            break;
+          }
+          case ColumnType.DOUBLE: {
+            Float8Vector.Mutator mutator = (Float8Vector.Mutator) info.valueVector.getMutator();
+            dataPack.foreach(0, count, (DoubleSetter) mutator::set);
+            break;
+          }
+          case ColumnType.STRING: {
+            ByteBuffer byteBuffer = MemoryUtil.getHollowDirectByteBuffer();
+            VarCharVector.Mutator mutator = (VarCharVector.Mutator) info.valueVector.getMutator();
+            dataPack.foreach(0, count, (int id, BytePiece bytes) -> {
+              assert bytes.base == null;
+              MemoryUtil.setByteBuffer(byteBuffer, bytes.addr, bytes.len, null);
+              mutator.setSafe(id, byteBuffer, 0, byteBuffer.remaining());
+            });
+            break;
+          }
+          default:
+            throw new IllegalStateException(String.format("Unhandled date type %s", info.columnSchema.dataType));
         }
-        case ColumnType.LONG: {
-          BigIntVector.Mutator mutator = (BigIntVector.Mutator) info.valueVector.getMutator();
-          dataPack.foreach(fromRowId, count, (int id, long v) -> mutator.setSafe(realOffset + id, v));
-          break;
-        }
-        case ColumnType.FLOAT: {
-          Float4Vector.Mutator mutator = (Float4Vector.Mutator) info.valueVector.getMutator();
-          dataPack.foreach(fromRowId, count, (int id, float v) -> mutator.setSafe(realOffset + id, v));
-          break;
-        }
-        case ColumnType.DOUBLE: {
-          Float8Vector.Mutator mutator = (Float8Vector.Mutator) info.valueVector.getMutator();
-          dataPack.foreach(fromRowId, count, (int id, double v) -> mutator.setSafe(realOffset + id, v));
-          break;
-        }
-        case ColumnType.STRING: {
+      } else {
+        if (dataType == ColumnType.STRING) {
+          // Strings are not yet optimized.
           ByteBuffer byteBuffer = MemoryUtil.getHollowDirectByteBuffer();
           VarCharVector.Mutator mutator = (VarCharVector.Mutator) info.valueVector.getMutator();
-          dataPack.foreach(fromRowId, count, (int id, BytePiece bytes) -> {
+          dataPack.foreach(0, count, (int id, BytePiece bytes) -> {
             assert bytes.base == null;
             MemoryUtil.setByteBuffer(byteBuffer, bytes.addr, bytes.len, null);
-            mutator.setSafe(realOffset + id, byteBuffer, 0, byteBuffer.remaining());
+            mutator.setSafe(id, byteBuffer, 0, byteBuffer.remaining());
           });
-          break;
+        } else {
+          // For the number type, we directly copy the memory, avoid the traversing cost.
+          BaseDataValueVector vector = (BaseDataValueVector) info.valueVector;
+          DrillBuf vectorBuff = vector.getBuffer();
+          ByteSlice data = dataPack.data();
+
+          assert (count << ColumnType.numTypeShift(dataType)) == data.size() && vectorBuff.capacity() >= data.size();
+
+          MemoryUtil.copyMemory(data.address(), vectorBuff.memoryAddress(), data.size());
         }
-        default:
-          throw new IllegalStateException(String.format("Unhandled date type %s", info.columnSchema.dataType));
       }
     }
     return read;

@@ -78,6 +78,7 @@ public abstract class IndexRRecordReader extends AbstractRecordReader {
     } catch (SchemaChangeException e) {
       throw new RuntimeException(e);
     }
+    vector.setInitialCapacity(DataPack.MAX_COUNT);
     vector.allocateNew();
     return new ProjectedColumnInfo(columnSchema, vector);
   }

@@ -36,7 +36,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -108,9 +107,7 @@ public class IndexRStoragePlugin extends AbstractStoragePlugin {
       IndexRConfig config = indexRNode.getConfig();
       // Indexes are always cached.
       this.indexMemCache = config.getIndexMemCache();
-      if (pluginConfig.isEnableMemCache()) {
-        this.packMemCache = config.getPackMemCache();
-      }
+      this.packMemCache = config.getPackMemCache();
     } catch (Exception e) {
       throw new IOException(e);
     }
@@ -137,15 +134,10 @@ public class IndexRStoragePlugin extends AbstractStoragePlugin {
 
   @Override
   public Set<? extends RelOptRule> getPhysicalOptimizerRules(OptimizerRulesContext optimizerRulesContext) {
-    boolean enableRSFilter = pluginConfig.isEnableRSFilter();
-    if (enableRSFilter) {
-      return Sets.newHashSet(
-          IndexRPushDownRSFilter.FilterScan,
-          IndexRPushDownRSFilter.FilterProjectScan,
-          IndexRPushDownRSFilter.HashJoinScan);
-    } else {
-      return Collections.emptySet();
-    }
+    return Sets.newHashSet(
+        IndexRPushDownRSFilter.FilterScan,
+        IndexRPushDownRSFilter.FilterProjectScan,
+        IndexRPushDownRSFilter.HashJoinScan);
   }
 
   @Override

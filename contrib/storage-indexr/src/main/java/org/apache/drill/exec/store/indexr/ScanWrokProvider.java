@@ -59,7 +59,7 @@ import io.indexr.util.Trick;
 public class ScanWrokProvider {
   private static final Logger logger = LoggerFactory.getLogger(ScanWrokProvider.class);
   private static final double RT_COST_RATE = 3.5;
-  private static final int MIN_PACK_SPLIT_STEP = 10;
+  private static final int MIN_PACK_SPLIT_STEP = 16;
   private static final int RESERVE_NODE_THRESHOLD = 4;
   private static final Comparator<EndpointAffinity> eaDescCmp = (ea1, ea2) -> Double.compare(ea2.getAffinity(), ea1.getAffinity());
 
@@ -186,6 +186,7 @@ public class ScanWrokProvider {
     long totalRowCount = 0;
     long validRowCount = 0;
     int validPackCount = 0;
+    int validSegmentCount = 0;
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
       totalRowCount += infoSegment.rowCount();
@@ -196,10 +197,10 @@ public class ScanWrokProvider {
           validPackCount += infoSegment.packCount();
         }
         validRowCount += infoSegment.rowCount();
+        validSegmentCount++;
       } else {
         logger.debug("rs filter ignore segment {}", infoSegment.name());
       }
-
       if (validRowCount >= limitScanRows) {
         break;
       }
@@ -217,7 +218,14 @@ public class ScanWrokProvider {
     }
 
     // estimated maxPw.
-    int maxPw = Math.min(Math.max(2, validPackCount / MIN_PACK_SPLIT_STEP), confMaxPw(plugin));
+    int packGroup = validPackCount / MIN_PACK_SPLIT_STEP;
+    int maxPw;
+    if (packGroup > validSegmentCount) {
+      maxPw = (int) ((packGroup - validSegmentCount) * 0.45);
+    } else {
+      maxPw = validPackCount;
+    }
+    maxPw = Math.max(2, maxPw);
 
     logger.debug("=============== calScanRowCount totalRowCount:{}, validRowCount:{}, validPackCount:{}, statScanRowCount:{}, maxPw: {}",
         totalRowCount, validRowCount, validPackCount, statScanRowCount, maxPw);
@@ -249,14 +257,13 @@ public class ScanWrokProvider {
     TablePool tablePool = plugin.indexRNode().getTablePool();
     HybridTable table = tablePool.get(scanSpec.getTableName());
     SegmentSchema schema = table.schema().schema;
-    int confMaxPw = confMaxPw(plugin);
-
     List<SegmentFd> allSegments = table.segmentPool().all();
 
     RCOperator rsFilter = scanSpec.getRSFilter();
     long totalRowCount = 0;
     long validRowCount = 0;
     int validPackCount = 0;
+    int validSegmentCount = 0;
     List<InfoSegment> usedSegments = new ArrayList<>(Math.max(allSegments.size() / 2, 100));
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
@@ -269,6 +276,7 @@ public class ScanWrokProvider {
         }
         usedSegments.add(infoSegment);
         validRowCount += infoSegment.rowCount();
+        validSegmentCount++;
       } else {
         logger.debug("rs filter ignore segment {}", infoSegment.name());
       }
@@ -294,17 +302,16 @@ public class ScanWrokProvider {
 
     boolean smallFetch = usedSegments.size() > 0
         && limitScanRows <= usedSegments.get(0).rowCount()
-        && limitScanRows <= MIN_PACK_SPLIT_STEP * DataPack.MAX_COUNT;
+        && limitScanRows <= (MIN_PACK_SPLIT_STEP * DataPack.MAX_COUNT);
 
-    int packSplitStep = Math.max(validPackCount / confMaxPw, MIN_PACK_SPLIT_STEP);
+    int packSplitStep = MIN_PACK_SPLIT_STEP;
     if (smallFetch) {
       // Only the first work will be used. We minimize the scan rows.
       packSplitStep = Math.min((int) (limitScanRows / DataPack.MAX_COUNT + 1), packSplitStep);
     }
     int colCount = colCount(table, columns);
 
-    boolean isCompress = plugin.getConfig().isCompress();
-    double hisByteCostPerRow = DrillIndexRTable.byteCostPerRow(table, columns, isCompress);
+    double hisByteCostPerRow = DrillIndexRTable.byteCostPerRow(table, columns, true);
     double rtByteCostPerRow = hisByteCostPerRow * RT_COST_RATE;
 
     List<ScanCompleteWork> historyWorks = new ArrayList<>(1024);
@@ -370,8 +377,17 @@ public class ScanWrokProvider {
     int lastRTE = Trick.indexLast(endpointAffinities, ea -> realtimeWorks.containsKey(ea.getEndpoint()));
 
     int minPw = Math.max(1, lastRTE + 1);
-    //int maxPw = Math.min(historyWorks.size() + realtimeWorks.size(), confMaxPw);
-    int maxPw = Math.max(Math.min(validPackCount / MIN_PACK_SPLIT_STEP, confMaxPw), minPw);
+
+    // TODO fix the algorithm of maxPw
+
+    int packGroup = validPackCount / MIN_PACK_SPLIT_STEP;
+    int maxPw;
+    if (packGroup > validSegmentCount) {
+      maxPw = (int) ((packGroup - validSegmentCount) * 0.45);
+    } else {
+      maxPw = validPackCount;
+    }
+    maxPw = Math.max(Math.max(2, maxPw), minPw);
 
     logger.debug("=============== calScanWorks minPw {}", minPw);
     logger.debug("=============== calScanWorks maxPw {}", maxPw);
@@ -392,16 +408,5 @@ public class ScanWrokProvider {
       colCount = columns.size();
     }
     return colCount;
-  }
-
-  private static int confMaxPw(IndexRStoragePlugin plugin) {
-    IndexRStoragePluginConfig config = plugin.getConfig();
-    int confPerNode = Math.max(config.getMaxScanThreadsPerNode(), 1);
-    int endpointCount = plugin.context().getBits().size();
-    if (endpointCount >= RESERVE_NODE_THRESHOLD) {
-      return Math.max((int) (endpointCount * confPerNode * (1f - config.getResourceReserveRate())), 1);
-    } else {
-      return endpointCount * confPerNode;
-    }
   }
 }

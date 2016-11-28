@@ -54,6 +54,7 @@ import io.indexr.server.HybridTable;
 
 public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
   private static final Logger logger = LoggerFactory.getLogger(IndexRScanBatchCreator.class);
+  private static final float SINGLE_QUERY_CACHE_MAX_RATIO = 0.35f;
 
   private static final Cache<String, Assignment> assignmentCache = CacheBuilder.newBuilder()//
       .initialCapacity(1024)//
@@ -162,24 +163,17 @@ public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
           indexMemCache,//
           packMemCache);
 
-      boolean cachePack;
-      if (!pluginConfig.isEnableMemCache()) {
-        cachePack = false;
-      } else {
-        float cacheThreshold = pluginConfig.getSingleQueryMemCacheThreshold();
-        long cacheCap = packMemCache.capacity();
-        boolean isCompress = pluginConfig.isCompress();
-        List<SchemaPath> columns = subScan.getColumns();
+      long cacheCap = packMemCache.capacity();
+      List<SchemaPath> columns = subScan.getColumns();
 
-        int packCount = 0;
-        for (List<SingleWork> works : assigmentMap.values()) {
-          packCount += works.size();
-        }
-        long rowCount = packCount * DataPack.MAX_COUNT;
-        double byteCostPerRow = DrillIndexRTable.byteCostPerRow(tableToolBox, columns, isCompress);
-        long totcalScanBytes = (long) (byteCostPerRow * rowCount);
-        cachePack = totcalScanBytes <= (cacheThreshold * cacheCap);
+      int packCount = 0;
+      for (List<SingleWork> works : assigmentMap.values()) {
+        packCount += works.size();
       }
+      long rowCount = packCount * DataPack.MAX_COUNT;
+      double byteCostPerRow = DrillIndexRTable.byteCostPerRow(tableToolBox, columns, true);
+      long totcalScanBytes = (long) (byteCostPerRow * rowCount);
+      boolean cachePack = totcalScanBytes <= (SINGLE_QUERY_CACHE_MAX_RATIO * cacheCap);
       return new Assignment(assigmentMap, cachePack);
     }
   }

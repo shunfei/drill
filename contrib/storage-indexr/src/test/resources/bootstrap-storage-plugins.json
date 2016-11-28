@@ -2,10 +2,7 @@
   "storage": {
     indexr: {
       type: "indexr",
-      enabled: true,
-      enableRSFilter: true,
-      enableMemCache: false,
-      maxScanThreadsPerNode: 10
+      enabled: true
     }
   }
 }

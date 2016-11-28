@@ -31,84 +31,23 @@ public class IndexRStoragePluginConfig extends StoragePluginConfigBase {
 
   public static final String NAME = "indexr";
 
-  private final int maxScanThreadsPerNode;
-  private final float resourceReserveRate;
-  private final boolean enableRSFilter;
-  private final boolean enableMemCache;
-  private final float singleQueryMemCacheThreshold;
-  private final boolean isCompress;
-
+  // Those params are useless, but we keep it here to avoid json exceptions when updating old clusters.
+  // And should be removed after all clusters are updated to new config.
   @JsonCreator
   public IndexRStoragePluginConfig(@JsonProperty("maxScanThreadsPerNode") Integer maxScanThreadsPerNode,//
                                    @JsonProperty("resourceReserveRate") Float resourceReserveRate,//
                                    @JsonProperty("enableRSFilter") Boolean enableRSFilter,//
                                    @JsonProperty("enableMemCache") Boolean enableMemCache,//
                                    @JsonProperty("singleQueryMemCacheThreshold") Float singleQueryMemCacheThreshold,//
-                                   @JsonProperty("isCompress") Boolean isCompress) {
-    this.maxScanThreadsPerNode = maxScanThreadsPerNode != null && maxScanThreadsPerNode > 0 ? maxScanThreadsPerNode : 10;
-    this.resourceReserveRate = resourceReserveRate != null && resourceReserveRate > 0 ? resourceReserveRate : 0.35f;
-    this.enableRSFilter = enableRSFilter != null ? enableRSFilter : true;
-
-    this.enableMemCache = enableMemCache != null ? enableMemCache : true;
-    this.singleQueryMemCacheThreshold = singleQueryMemCacheThreshold != null ? singleQueryMemCacheThreshold : 0.2f;
-    this.isCompress = isCompress != null ? isCompress : true;
-  }
-
-  @JsonProperty("maxScanThreadsPerNode")
-  public int getMaxScanThreadsPerNode() {
-    return maxScanThreadsPerNode;
-  }
-
-  @JsonProperty("resourceReserveRate")
-  public float getResourceReserveRate() {
-    return resourceReserveRate;
-  }
-
-  @JsonProperty("enableRSFilter")
-  public boolean isEnableRSFilter() {
-    return enableRSFilter;
-  }
-
-  @JsonProperty("enableMemCache")
-  public boolean isEnableMemCache() {
-    return enableMemCache;
-  }
-
-  @JsonProperty("singleQueryMemCacheThreshold")
-  public float getSingleQueryMemCacheThreshold() {
-    return singleQueryMemCacheThreshold;
-  }
-
-  @JsonProperty("isCompress")
-  public boolean isCompress() {
-    return isCompress;
-  }
+                                   @JsonProperty("isCompress") Boolean isCompress) {}
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
-
-    IndexRStoragePluginConfig that = (IndexRStoragePluginConfig) o;
-
-    if (maxScanThreadsPerNode != that.maxScanThreadsPerNode) return false;
-    if (Float.compare(that.resourceReserveRate, resourceReserveRate) != 0) return false;
-    if (enableRSFilter != that.enableRSFilter) return false;
-    if (enableMemCache != that.enableMemCache) return false;
-    if (Float.compare(that.singleQueryMemCacheThreshold, singleQueryMemCacheThreshold) != 0)
-      return false;
-    return isCompress == that.isCompress;
-
+    return true;
   }
 
   @Override
   public int hashCode() {
-    int result = maxScanThreadsPerNode;
-    result = 31 * result + (resourceReserveRate != +0.0f ? Float.floatToIntBits(resourceReserveRate) : 0);
-    result = 31 * result + (enableRSFilter ? 1 : 0);
-    result = 31 * result + (enableMemCache ? 1 : 0);
-    result = 31 * result + (singleQueryMemCacheThreshold != +0.0f ? Float.floatToIntBits(singleQueryMemCacheThreshold) : 0);
-    result = 31 * result + (isCompress ? 1 : 0);
-    return result;
+    return 0;
   }
 }
