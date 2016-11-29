@@ -26,13 +26,7 @@ public class TestIndexRPlugin extends BaseTestQuery {
 
   @Test
   public void testIndexr() throws Exception {
-//    Thread.sleep(5000);
-
-//    test("use indexr;");
-//    test("show tables;");
-//    test("describe campaign");
-
-    // 19 is the limit for drill transform in into hashjoin!
+    System.setProperty("saffron.default.charset", "UTF-16LE");
 
     String sql = "select A.user_id, sum(A.clicks), sum(B.impressions) as aa from indexr.campaign as A join indexr.campaign as B on A.channel_id = B.channel_id " +
         "where " +
@@ -43,11 +37,8 @@ public class TestIndexRPlugin extends BaseTestQuery {
         "from indexr.campaign where user_id in (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20) and campaign_id > 10 " +
         "group by spot_id order by sum(cost) desc limit 10";
 
-    //sql = "select user_id from indexr.campaign limit 10";
+    sql = "select * from indexr.test where d1 like '帅哥%' limit 10";
 
-    //sql = "select user_id, sum(clicks), sum(impressions) as aa from indexr.campaign where " +
-    //  "campaign_id in (0, 51409, 54638,31460, 50688, 51087, 55) or user_id > 10000 " +
-    //  "group by user_id order by aa desc limit 10";
     //test("explain plan for " + sql);
     test(sql);
   }

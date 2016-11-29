@@ -34,6 +34,7 @@ import io.indexr.segment.rc.Greater;
 import io.indexr.segment.rc.GreaterEqual;
 import io.indexr.segment.rc.Less;
 import io.indexr.segment.rc.LessEqual;
+import io.indexr.segment.rc.Like;
 import io.indexr.segment.rc.Not;
 import io.indexr.segment.rc.NotEqual;
 import io.indexr.segment.rc.Or;
@@ -99,42 +100,49 @@ public class RSFilterGenerator extends AbstractExprVisitor<RCOperator, Void, Run
         operator = new Equal(
             genAttr(processor.getPath()),
             processor.getNumValue(),
-            processor.getStrValue());
+            processor.getUTF8StrValue());
         break;
       }
       case "not_equal": {
         operator = new NotEqual(
             genAttr(processor.getPath()),
             processor.getNumValue(),
-            processor.getStrValue());
+            processor.getUTF8StrValue());
         break;
       }
       case "greater_than_or_equal_to": {
         operator = new GreaterEqual(
             genAttr(processor.getPath()),
             processor.getNumValue(),
-            processor.getStrValue());
+            processor.getUTF8StrValue());
         break;
       }
       case "greater_than": {
         operator = new Greater(
             genAttr(processor.getPath()),
             processor.getNumValue(),
-            processor.getStrValue());
+            processor.getUTF8StrValue());
         break;
       }
       case "less_than_or_equal_to": {
         operator = new LessEqual(
             genAttr(processor.getPath()),
             processor.getNumValue(),
-            processor.getStrValue());
+            processor.getUTF8StrValue());
         break;
       }
       case "less_than": {
         operator = new Less(
             genAttr(processor.getPath()),
             processor.getNumValue(),
-            processor.getStrValue());
+            processor.getUTF8StrValue());
+        break;
+      }
+      case "like": {
+        operator = new Like(
+            genAttr(processor.getPath()),
+            processor.getNumValue(),
+            processor.getUTF8StrValue());
         break;
       }
       default:

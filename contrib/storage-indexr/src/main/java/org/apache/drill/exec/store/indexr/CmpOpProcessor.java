@@ -25,6 +25,7 @@ import org.apache.drill.common.expression.LogicalExpression;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.common.expression.ValueExpressions;
 import org.apache.drill.common.expression.visitors.AbstractExprVisitor;
+import org.apache.spark.unsafe.types.UTF8String;
 
 import java.util.Set;
 
@@ -54,6 +55,10 @@ public class CmpOpProcessor extends AbstractExprVisitor<Boolean, LogicalExpressi
 
   public String getStrValue() {
     return strValue;
+  }
+
+  public UTF8String getUTF8StrValue() {
+    return strValue == null ? null : UTF8String.fromString(strValue);
   }
 
   public SchemaPath getPath() {
