@@ -79,7 +79,16 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
     try {
       for (SingleWork work : works) {
         if (!segmentMap.containsKey(work.segment())) {
-          segmentMap.put(work.segment(), segmentOpener.open(work.segment()));
+          Segment segment = segmentOpener.open(work.segment());
+          // Check segment column here.
+          for (ProjectedColumnInfo info : projectedColumnInfos) {
+            Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
+            if (columnId == null) {
+              throw new IllegalStateException(String.format("column %s not found in %s", info.columnSchema, segment.schema()));
+            }
+          }
+
+          segmentMap.put(work.segment(), segment);
         }
       }
     } catch (IOException e) {
@@ -90,37 +99,50 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
   @Override
   public int next() {
     try {
-      if (curStepId >= works.size()) {
-        return 0;
+      int read = -1;
+      while (read < 0) {
+        if (curStepId >= works.size()) {
+          return 0;
+        }
+
+        SingleWork stepWork = works.get(curStepId);
+        curStepId++;
+
+        Segment segment = segmentMap.get(stepWork.segment());
+        read = read(segment, stepWork.packId());
       }
 
-      for (ProjectedColumnInfo info : projectedColumnInfos) {
-        info.valueVector.setInitialCapacity(DataPack.MAX_COUNT);
-      }
-      SingleWork stepWork = works.get(curStepId);
-      curStepId++;
-
-      Segment segment = segmentMap.get(stepWork.segment());
-      int read = read(segment, stepWork.packId());
       for (ProjectedColumnInfo info : projectedColumnInfos) {
         info.valueVector.getMutator().setValueCount(read);
       }
 
       return read;
-    } catch (Exception e) {
-      throw new RuntimeException(e);
+    } catch (Throwable t) {
+      // No matter or what, don't thrown exception from here.
+      // It will break the Drill algorithm and make system unstable.
+      // I do think Drill should handle this...
+
+      log.error("Read rows error, query may return incorrect result.", t);
+      return 0;
     }
   }
 
-  private int read(Segment segment, int packId) throws Exception {
+  private int read(Segment segment, int packId) {
     int read = -1;
     for (ProjectedColumnInfo info : projectedColumnInfos) {
       Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
       if (columnId == null) {
-        throw new RuntimeException(String.format("column %s not found in %s", info.columnSchema, segment.schema()));
+        log.error("column {} not found in {}", info.columnSchema, segment.schema());
+        return -1;
       }
       byte dataType = info.columnSchema.dataType;
-      DataPack dataPack = (DataPack) segment.column(columnId).pack(packId);
+      DataPack dataPack = null;
+      try {
+        dataPack = (DataPack) segment.column(columnId).pack(packId);
+      } catch (IOException e) {
+        log.error("open {}", segment.name(), e);
+        return -1;
+      }
       int count = dataPack.count();
       read = count;
 

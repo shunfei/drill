@@ -76,7 +76,15 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
     try {
       for (SingleWork work : works) {
         if (!segmentMap.containsKey(work.segment())) {
-          segmentMap.put(work.segment(), segmentOpener.open(work.segment()));
+          Segment segment = segmentOpener.open(work.segment());
+          // Check segment column here.
+          for (ProjectedColumnInfo info : projectedColumnInfos) {
+            Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
+            if (columnId == null) {
+              throw new IllegalStateException(String.format("column %s not found in %s", info.columnSchema, segment.schema()));
+            }
+          }
+          segmentMap.put(work.segment(), segment);
         }
       }
     } catch (IOException e) {
@@ -87,34 +95,33 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
   @Override
   public int next() {
     try {
-      if (curIterator == null || !curIterator.hasNext()) {
-        if (nextStepId >= works.size()) {
-          return 0;
+      int read = -1;
+      while (read < 0) {
+        if (curIterator == null || !curIterator.hasNext()) {
+          if (nextStepId >= works.size()) {
+            return 0;
+          }
+
+          SingleWork stepWork = works.get(nextStepId);
+          nextStepId++;
+          curSegment = segmentMap.get(stepWork.segment());
+          curIterator = curSegment.rowTraversal().iterator();
         }
 
-        SingleWork stepWork = works.get(nextStepId);
-        nextStepId++;
-        curSegment = segmentMap.get(stepWork.segment());
-        curIterator = curSegment.rowTraversal().iterator();
+        read = read(curSegment.schema(), curIterator, DataPack.MAX_COUNT);
       }
-
-      for (ProjectedColumnInfo info : projectedColumnInfos) {
-        info.valueVector.setInitialCapacity(DataPack.MAX_COUNT);
-      }
-
-      int read = read(curSegment.schema(), curIterator, DataPack.MAX_COUNT);
-
       for (ProjectedColumnInfo info : projectedColumnInfos) {
         info.valueVector.getMutator().setValueCount(read);
       }
 
       return read;
-    } catch (Exception e) {
-      throw new RuntimeException(e);
+    } catch (Throwable t) {
+      log.error("Read rows error, query may return incorrect result.", t);
+      return 0;
     }
   }
 
-  private int read(SegmentSchema schema, Iterator<Row> iterator, int maxRow) throws Exception {
+  private int read(SegmentSchema schema, Iterator<Row> iterator, int maxRow) {
     int colCount = projectedColumnInfos.length;
     byte[] dataTypes = new byte[colCount];
     int[] columnIds = new int[colCount];
@@ -122,7 +129,8 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
       ProjectedColumnInfo info = projectedColumnInfos[i];
       Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, schema);
       if (columnId == null) {
-        throw new RuntimeException(String.format("column %s not found in %s", info.columnSchema, schema));
+        log.error("column {} not found in {}", info.columnSchema, schema);
+        return -1;
       }
       dataTypes[i] = info.columnSchema.dataType;
       columnIds[i] = columnId;
