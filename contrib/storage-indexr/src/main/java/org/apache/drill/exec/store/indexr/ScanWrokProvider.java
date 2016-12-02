@@ -60,7 +60,6 @@ public class ScanWrokProvider {
   private static final Logger logger = LoggerFactory.getLogger(ScanWrokProvider.class);
   private static final double RT_COST_RATE = 3.5;
   private static final int MIN_PACK_SPLIT_STEP = 16;
-  private static final int RESERVE_NODE_THRESHOLD = 4;
   private static final Comparator<EndpointAffinity> eaDescCmp = (ea1, ea2) -> Double.compare(ea2.getAffinity(), ea1.getAffinity());
 
   private static final Cache<CacheKey, Works> workCache = CacheBuilder.newBuilder()
@@ -221,13 +220,13 @@ public class ScanWrokProvider {
     int packGroup = validPackCount / MIN_PACK_SPLIT_STEP;
     int maxPw;
     if (packGroup > validSegmentCount) {
-      maxPw = (int) ((packGroup - validSegmentCount) * 0.45);
+      maxPw = (int) ((packGroup - validSegmentCount) * 0.45) + validSegmentCount;
     } else {
-      maxPw = validPackCount;
+      maxPw = validSegmentCount;
     }
     maxPw = Math.max(2, maxPw);
 
-    logger.debug("=============== calScanRowCount totalRowCount:{}, validRowCount:{}, validPackCount:{}, statScanRowCount:{}, maxPw: {}",
+    logger.debug("=============== calStat totalRowCount:{}, validRowCount:{}, validPackCount:{}, statScanRowCount:{}, maxPw: {}",
         totalRowCount, validRowCount, validPackCount, statScanRowCount, maxPw);
 
     return new Stat(statScanRowCount, maxPw);
@@ -383,9 +382,9 @@ public class ScanWrokProvider {
     int packGroup = validPackCount / MIN_PACK_SPLIT_STEP;
     int maxPw;
     if (packGroup > validSegmentCount) {
-      maxPw = (int) ((packGroup - validSegmentCount) * 0.45);
+      maxPw = (int) ((packGroup - validSegmentCount) * 0.45) + validSegmentCount;
     } else {
-      maxPw = validPackCount;
+      maxPw = validSegmentCount;
     }
     maxPw = Math.max(Math.max(2, maxPw), minPw);
 
