@@ -163,7 +163,6 @@ public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
           indexMemCache,//
           packMemCache);
 
-      long cacheCap = packMemCache.capacity();
       List<SchemaPath> columns = subScan.getColumns();
 
       int packCount = 0;
@@ -173,7 +172,7 @@ public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
       long rowCount = packCount * DataPack.MAX_COUNT;
       double byteCostPerRow = DrillIndexRTable.byteCostPerRow(tableToolBox, columns, true);
       long totcalScanBytes = (long) (byteCostPerRow * rowCount);
-      boolean cachePack = totcalScanBytes <= (SINGLE_QUERY_CACHE_MAX_RATIO * cacheCap);
+      boolean cachePack = packMemCache == null || totcalScanBytes <= (SINGLE_QUERY_CACHE_MAX_RATIO * packMemCache.capacity());
       return new Assignment(assigmentMap, cachePack);
     }
   }
