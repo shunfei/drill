@@ -17,6 +17,7 @@
  */
 package org.apache.drill.exec.store.indexr;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.common.types.TypeProtos;
@@ -31,10 +32,16 @@ import org.apache.drill.exec.vector.ValueVector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import io.indexr.segment.ColumnSchema;
+import io.indexr.segment.Segment;
 import io.indexr.segment.SegmentSchema;
+import io.indexr.segment.helper.SegmentOpener;
+import io.indexr.segment.helper.SingleWork;
 import io.indexr.segment.pack.DataPack;
 import io.indexr.util.Pair;
 
@@ -45,7 +52,11 @@ public abstract class IndexRRecordReader extends AbstractRecordReader {
   final String tableName;
   final SegmentSchema schema;
 
-  ProjectedColumnInfo[] projectedColumnInfos;
+  SegmentOpener segmentOpener;
+  List<SingleWork> works;
+
+  ProjectedColumnInfo[] projectColumnInfos;
+  Map<String, Segment> segmentMap = new HashMap<>();
 
   static class ProjectedColumnInfo {
     ColumnSchema columnSchema;
@@ -59,9 +70,13 @@ public abstract class IndexRRecordReader extends AbstractRecordReader {
 
   IndexRRecordReader(String tableName, //
                      SegmentSchema schema, //
-                     List<SchemaPath> projectColumns) {
+                     SegmentOpener segmentOpener,//
+                     List<SchemaPath> projectColumns,//
+                     List<SingleWork> works) {
     this.tableName = tableName;
     this.schema = schema;
+    this.segmentOpener = segmentOpener;
+    this.works = works;
 
     setColumns(projectColumns);
   }
@@ -88,23 +103,52 @@ public abstract class IndexRRecordReader extends AbstractRecordReader {
   public void setup(OperatorContext context, OutputMutator output) throws ExecutionSetupException {
     List<ColumnSchema> schemas = schema.columns;
     if (isStarQuery()) {
-      projectedColumnInfos = new ProjectedColumnInfo[schemas.size()];
+      projectColumnInfos = new ProjectedColumnInfo[schemas.size()];
       int columnId = 0;
       for (ColumnSchema cs : schemas) {
-        projectedColumnInfos[columnId] = genPCI(cs, output);
+        projectColumnInfos[columnId] = genPCI(cs, output);
         columnId++;
       }
     } else {
-      projectedColumnInfos = new ProjectedColumnInfo[this.getColumns().size()];
+      projectColumnInfos = new ProjectedColumnInfo[this.getColumns().size()];
       int count = 0;
       for (SchemaPath schemaPath : this.getColumns()) {
         Pair<ColumnSchema, Integer> p = DrillIndexRTable.mapColumn(tableName, schema, schemaPath);
         if (p == null) {
           throw new RuntimeException(String.format("Column not found! SchemaPath: %s, search segment schema: %s", schemaPath, schemas));
         }
-        projectedColumnInfos[count] = genPCI(p.first, output);
+        projectColumnInfos[count] = genPCI(p.first, output);
         count++;
       }
     }
+
+    try {
+      for (SingleWork work : works) {
+        if (!segmentMap.containsKey(work.segment())) {
+          Segment segment = segmentOpener.open(work.segment());
+          // Check segment column here.
+          for (ProjectedColumnInfo info : projectColumnInfos) {
+            Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
+            if (columnId == null) {
+              throw new IllegalStateException(String.format("segment[%s]: column %s not found in %s", segment.name(), info.columnSchema, segment.schema()));
+            }
+          }
+          segmentMap.put(work.segment(), segment);
+        }
+      }
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Override
+  public void close() throws Exception {
+    if (segmentMap != null) {
+      segmentMap.values().forEach(IOUtils::closeQuietly);
+      segmentMap.clear();
+      segmentMap = null;
+    }
+    segmentOpener = null;
+    works = null;
   }
 }

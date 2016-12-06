@@ -189,6 +189,9 @@ public class ScanWrokProvider {
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
       totalRowCount += infoSegment.rowCount();
+      if (rsFilter != null) {
+        rsFilter.materialize(infoSegment.schema().getColumns());
+      }
       if (rsFilter == null || rsFilter.roughCheckOnColumn(infoSegment) != RSValue.None) {
         if (infoSegment.isRealtime()) {
           validPackCount += DataPack.rowCountToPackCount(infoSegment.rowCount());
@@ -267,6 +270,9 @@ public class ScanWrokProvider {
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
       totalRowCount += infoSegment.rowCount();
+      if (rsFilter != null) {
+        rsFilter.materialize(infoSegment.schema().getColumns());
+      }
       if (rsFilter == null || rsFilter.roughCheckOnColumn(infoSegment) != RSValue.None) {
         if (infoSegment.isRealtime()) {
           validPackCount += DataPack.rowCountToPackCount(infoSegment.rowCount());

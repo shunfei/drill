@@ -19,7 +19,6 @@ package org.apache.drill.exec.store.indexr;
 
 import com.google.common.base.Preconditions;
 
-import org.apache.commons.io.IOUtils;
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.exec.ops.OperatorContext;
@@ -36,9 +35,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 import io.indexr.data.BytePiece;
 import io.indexr.data.DoubleSetter;
@@ -46,58 +45,60 @@ import io.indexr.data.FloatSetter;
 import io.indexr.data.IntSetter;
 import io.indexr.data.LongSetter;
 import io.indexr.io.ByteSlice;
+import io.indexr.segment.ColumnSchema;
 import io.indexr.segment.ColumnType;
+import io.indexr.segment.RSValue;
 import io.indexr.segment.Segment;
 import io.indexr.segment.SegmentSchema;
 import io.indexr.segment.helper.SegmentOpener;
 import io.indexr.segment.helper.SingleWork;
 import io.indexr.segment.pack.DataPack;
 import io.indexr.segment.pack.Version;
+import io.indexr.segment.rc.Attr;
+import io.indexr.segment.rc.RCOperator;
 import io.indexr.util.MemoryUtil;
 import io.netty.buffer.DrillBuf;
 
 public class IndexRRecordReaderByPack extends IndexRRecordReader {
   private static final Logger log = LoggerFactory.getLogger(IndexRRecordReaderByPack.class);
 
-  private SegmentOpener segmentOpener;
-  private List<SingleWork> works;
+  private RCOperator rsFilter;
   private int curStepId = 0;
 
-  private Map<String, Segment> segmentMap;
+  private long getPackTime = 0;
+  private long setValueTime = 0;
+
+  private boolean isLateMaterialization = false;
+  private Segment curSegment;
+  private int[] projectColumnIds;
 
   public IndexRRecordReaderByPack(String tableName,//
                                   SegmentSchema schema,//
                                   List<SchemaPath> projectColumns,//
                                   SegmentOpener segmentOpener,//
+                                  RCOperator rsFilter,//
                                   List<SingleWork> works) {
-    super(tableName, schema, projectColumns);
+    super(tableName, schema, segmentOpener, projectColumns, works);
     this.segmentOpener = segmentOpener;
+    this.rsFilter = rsFilter;
     this.works = works;
   }
 
   @Override
   public void setup(OperatorContext context, OutputMutator output) throws ExecutionSetupException {
     super.setup(context, output);
-    this.segmentMap = new HashMap<>();
-    try {
-      for (SingleWork work : works) {
-        if (!segmentMap.containsKey(work.segment())) {
-          Segment segment = segmentOpener.open(work.segment());
-          // Check segment column here.
-          for (ProjectedColumnInfo info : projectedColumnInfos) {
-            Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
-            if (columnId == null) {
-              throw new IllegalStateException(
-                  String.format("segment[%s]: column %s not found in %s",
-                      segment.name(), info.columnSchema, segment.schema()));
-            }
-          }
 
-          segmentMap.put(work.segment(), segment);
+    projectColumnIds = new int[projectColumnInfos.length];
+
+    if (rsFilter != null) {
+      Set<String> predicateColumns = new HashSet<>();
+      rsFilter.foreach(op -> {
+        for (Attr attr : op.attr()) {
+          predicateColumns.add(attr.columnName());
         }
-      }
-    } catch (IOException e) {
-      throw new RuntimeException(e);
+      });
+      // The late materialization is worthy only when there are columns not included in predicates.
+      isLateMaterialization = predicateColumns.size() < projectColumnInfos.length;
     }
   }
 
@@ -105,7 +106,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
   public int next() {
     try {
       int read = -1;
-      while (read < 0) {
+      while (read <= 0) {
         if (curStepId >= works.size()) {
           return 0;
         }
@@ -114,7 +115,9 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
         curStepId++;
 
         Segment segment = segmentMap.get(stepWork.segment());
-        read = read(segment, stepWork.packId());
+        int packId = stepWork.packId();
+
+        read = read(segment, packId);
       }
       return read;
     } catch (Throwable t) {
@@ -127,23 +130,78 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
     }
   }
 
-  private int read(Segment segment, int packId) {
+  /**
+   * This method check whether those rows in packId possibly contains any rows we interested.
+   *
+   * @return null means we can ignore those rows of packId.
+   * Otherwise an pack array which some packs may have already been loaded into.
+   */
+  private DataPack[] beforeRead(Segment segment, int packId) throws IOException {
+    List<ColumnSchema> schemas = segment.schema().getColumns();
+    DataPack[] rowPacks = new DataPack[schemas.size()];
+    if (curSegment != segment) {
+      curSegment = segment;
+
+      // Set the attrs to the real columnIds.
+      rsFilter.materialize(schemas);
+      // Set the project columns to the real columnIds.
+      for (int i = 0; i < projectColumnInfos.length; i++) {
+        ColumnSchema column = projectColumnInfos[i].columnSchema;
+        Integer columnId = DrillIndexRTable.mapColumn(column, segment.schema());
+        if (columnId == null) {
+          throw new IllegalStateException(String.format("segment[%s]: column %s not found in %s",
+              segment.name(), column, segment.schema()));
+        }
+        projectColumnIds[i] = columnId;
+      }
+    }
+
+    if (!isLateMaterialization) {
+      return rowPacks;
+    }
+
+    long time = System.currentTimeMillis();
+
+    rsFilter.foreachEX(op -> {
+      for (Attr attr : op.attr()) {
+        int columnId = attr.columnId();
+        if (rowPacks[columnId] == null) {
+          rowPacks[columnId] = (DataPack) segment.column(columnId).pack(packId);
+        }
+      }
+    });
+
+    byte res = rsFilter.roughCheckOnRow(rowPacks);
+
+    getPackTime += System.currentTimeMillis() - time;
+
+    return res == RSValue.None ? null : rowPacks;
+  }
+
+  private int read(Segment segment, int packId) throws IOException {
+    DataPack[] rowPacks = beforeRead(segment, packId);
+    if (rowPacks == null) {
+      log.debug("rsFilter ignore (LM) segment %s, pack: %s", segment.name(), packId);
+      return 0;
+    }
+
     int read = -1;
-    for (ProjectedColumnInfo info : projectedColumnInfos) {
-      Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
-      if (columnId == null) {
-        log.error("segment[{}]: column {} not found in {}",
-            segment.name(), info.columnSchema, segment.schema());
-        return -1;
-      }
-      byte dataType = info.columnSchema.dataType;
-      DataPack dataPack = null;
-      try {
+    for (int projectId = 0; projectId < projectColumnInfos.length; projectId++) {
+      ProjectedColumnInfo projectInfo = projectColumnInfos[projectId];
+      int columnId = projectColumnIds[projectId];
+
+      long time = System.currentTimeMillis();
+
+      DataPack dataPack = rowPacks[columnId];
+      if (dataPack == null) {
         dataPack = (DataPack) segment.column(columnId).pack(packId);
-      } catch (IOException e) {
-        log.error("open {}", segment.name(), e);
-        return -1;
+        rowPacks[columnId] = dataPack;
       }
+
+      long time2 = System.currentTimeMillis();
+      getPackTime += time2 - time;
+
+      byte dataType = projectInfo.columnSchema.dataType;
       int count = dataPack.count();
       if (count == 0) {
         log.warn("segment[{}]: found empty pack, packId: [{}]", segment.name(), packId);
@@ -157,33 +215,33 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
       if (dataPack.version() == Version.VERSION_0_ID) {
         switch (dataType) {
           case ColumnType.INT: {
-            IntVector.Mutator mutator = (IntVector.Mutator) info.valueVector.getMutator();
+            IntVector.Mutator mutator = (IntVector.Mutator) projectInfo.valueVector.getMutator();
             // Force the vector to allocate engough space.
             mutator.setSafe(count - 1, 0);
             dataPack.foreach(0, count, (IntSetter) mutator::set);
             break;
           }
           case ColumnType.LONG: {
-            BigIntVector.Mutator mutator = (BigIntVector.Mutator) info.valueVector.getMutator();
+            BigIntVector.Mutator mutator = (BigIntVector.Mutator) projectInfo.valueVector.getMutator();
             mutator.setSafe(count - 1, 0);
             dataPack.foreach(0, count, (LongSetter) mutator::set);
             break;
           }
           case ColumnType.FLOAT: {
-            Float4Vector.Mutator mutator = (Float4Vector.Mutator) info.valueVector.getMutator();
+            Float4Vector.Mutator mutator = (Float4Vector.Mutator) projectInfo.valueVector.getMutator();
             mutator.setSafe(count - 1, 0);
             dataPack.foreach(0, count, (FloatSetter) mutator::set);
             break;
           }
           case ColumnType.DOUBLE: {
-            Float8Vector.Mutator mutator = (Float8Vector.Mutator) info.valueVector.getMutator();
+            Float8Vector.Mutator mutator = (Float8Vector.Mutator) projectInfo.valueVector.getMutator();
             mutator.setSafe(count - 1, 0);
             dataPack.foreach(0, count, (DoubleSetter) mutator::set);
             break;
           }
           case ColumnType.STRING: {
             ByteBuffer byteBuffer = MemoryUtil.getHollowDirectByteBuffer();
-            VarCharVector.Mutator mutator = (VarCharVector.Mutator) info.valueVector.getMutator();
+            VarCharVector.Mutator mutator = (VarCharVector.Mutator) projectInfo.valueVector.getMutator();
             dataPack.foreach(0, count, (int id, BytePiece bytes) -> {
               assert bytes.base == null;
               MemoryUtil.setByteBuffer(byteBuffer, bytes.addr, bytes.len, null);
@@ -192,23 +250,18 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
             break;
           }
           default:
-            throw new IllegalStateException(String.format("Unsupported date type %s", info.columnSchema.dataType));
+            throw new IllegalStateException(String.format("Unsupported date type %s", projectInfo.columnSchema.dataType));
         }
       } else {
         // Start from v1, we directly copy the memory into vector, to avoid the traversing cost.
 
         if (dataType == ColumnType.STRING) {
-          VarCharVector vector = (VarCharVector) info.valueVector;
+          VarCharVector vector = (VarCharVector) projectInfo.valueVector;
           UInt4Vector offsetVector = vector.getOffsetVector();
 
           ByteSlice packData = dataPack.data();
           int indexSize = (count + 1) << 2;
           int strDataSize = packData.size() - indexSize;
-
-          dataPack.stringValueAt(0);
-          dataPack.stringValueAt(count - 1);
-
-          packData.getInt(1);
 
           // Expand the offset vector if needed.
           offsetVector.getMutator().setSafe(count, 0);
@@ -224,7 +277,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
           MemoryUtil.copyMemory(packData.address(), offsetBuffer.memoryAddress(), indexSize);
           MemoryUtil.copyMemory(packData.address() + indexSize, vectorBuffer.memoryAddress(), strDataSize);
         } else {
-          BaseDataValueVector vector = (BaseDataValueVector) info.valueVector;
+          BaseDataValueVector vector = (BaseDataValueVector) projectInfo.valueVector;
 
           // Expand the vector if needed.
           switch (dataType) {
@@ -241,7 +294,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
               ((Float8Vector.Mutator) vector.getMutator()).setSafe(count - 1, 0);
               break;
             default:
-              throw new IllegalStateException(String.format("Unsupported date type %s", info.columnSchema.dataType));
+              throw new IllegalStateException(String.format("Unsupported date type %s", projectInfo.columnSchema.dataType));
           }
 
           DrillBuf vectorBuffer = vector.getBuffer();
@@ -253,17 +306,13 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
           MemoryUtil.copyMemory(packData.address(), vectorBuffer.memoryAddress(), packData.size());
         }
       }
+      setValueTime += System.currentTimeMillis() - time2;
     }
     return read;
   }
 
   @Override
   public void close() throws Exception {
-    if (segmentMap != null) {
-      segmentMap.values().forEach(IOUtils::closeQuietly);
-      segmentMap = null;
-      segmentOpener = null;
-      works = null;
-    }
+    log.debug("cost: getPack: {}ms, setValue: {}ms", getPackTime, setValueTime);
   }
 }

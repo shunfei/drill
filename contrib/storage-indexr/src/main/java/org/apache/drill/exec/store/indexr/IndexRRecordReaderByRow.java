@@ -17,11 +17,7 @@
  */
 package org.apache.drill.exec.store.indexr;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.expression.SchemaPath;
-import org.apache.drill.exec.ops.OperatorContext;
-import org.apache.drill.exec.physical.impl.OutputMutator;
 import org.apache.drill.exec.vector.BigIntVector;
 import org.apache.drill.exec.vector.Float4Vector;
 import org.apache.drill.exec.vector.Float8Vector;
@@ -31,12 +27,9 @@ import org.apache.spark.unsafe.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 import io.indexr.data.BytePiece;
 import io.indexr.segment.ColumnType;
@@ -51,45 +44,18 @@ import io.indexr.util.MemoryUtil;
 public class IndexRRecordReaderByRow extends IndexRRecordReader {
   private static final Logger log = LoggerFactory.getLogger(IndexRRecordReaderByPack.class);
 
-  private SegmentOpener segmentOpener;
-  private List<SingleWork> works;
   private int nextStepId = 0;
   private Iterator<Row> curIterator;
   private Segment curSegment;
-
-  private Map<String, Segment> segmentMap;
 
   public IndexRRecordReaderByRow(String tableName,//
                                  SegmentSchema segmentSchema,//
                                  List<SchemaPath> projectColumns,//
                                  SegmentOpener segmentOpener,//
                                  List<SingleWork> works) {
-    super(tableName, segmentSchema, projectColumns);
+    super(tableName, segmentSchema, segmentOpener, projectColumns, works);
     this.segmentOpener = segmentOpener;
     this.works = works;
-  }
-
-  @Override
-  public void setup(OperatorContext context, OutputMutator output) throws ExecutionSetupException {
-    super.setup(context, output);
-    this.segmentMap = new HashMap<>();
-    try {
-      for (SingleWork work : works) {
-        if (!segmentMap.containsKey(work.segment())) {
-          Segment segment = segmentOpener.open(work.segment());
-          // Check segment column here.
-          for (ProjectedColumnInfo info : projectedColumnInfos) {
-            Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
-            if (columnId == null) {
-              throw new IllegalStateException(String.format("column %s not found in %s", info.columnSchema, segment.schema()));
-            }
-          }
-          segmentMap.put(work.segment(), segment);
-        }
-      }
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
   }
 
   @Override
@@ -110,7 +76,7 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
 
         read = read(curSegment.schema(), curIterator, DataPack.MAX_COUNT);
       }
-      for (ProjectedColumnInfo info : projectedColumnInfos) {
+      for (ProjectedColumnInfo info : projectColumnInfos) {
         info.valueVector.getMutator().setValueCount(read);
       }
 
@@ -122,11 +88,11 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
   }
 
   private int read(SegmentSchema schema, Iterator<Row> iterator, int maxRow) {
-    int colCount = projectedColumnInfos.length;
+    int colCount = projectColumnInfos.length;
     byte[] dataTypes = new byte[colCount];
     int[] columnIds = new int[colCount];
     for (int i = 0; i < colCount; i++) {
-      ProjectedColumnInfo info = projectedColumnInfos[i];
+      ProjectedColumnInfo info = projectColumnInfos[i];
       Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, schema);
       if (columnId == null) {
         log.error("column {} not found in {}", info.columnSchema, schema);
@@ -141,7 +107,7 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
     while (rowId < maxRow && iterator.hasNext()) {
       Row row = iterator.next();
       for (int i = 0; i < colCount; i++) {
-        ProjectedColumnInfo info = projectedColumnInfos[i];
+        ProjectedColumnInfo info = projectColumnInfos[i];
         int columnId = columnIds[i];
         byte dataType = dataTypes[i];
         switch (dataTypes[i]) {
@@ -186,15 +152,5 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
       rowId++;
     }
     return rowId;
-  }
-
-  @Override
-  public void close() throws Exception {
-    if (segmentMap != null) {
-      segmentMap.values().forEach(IOUtils::closeQuietly);
-      segmentMap = null;
-      segmentOpener = null;
-      works = null;
-    }
   }
 }
