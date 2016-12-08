@@ -17,7 +17,6 @@
  */
 package org.apache.drill.exec.store.indexr;
 
-import com.google.common.base.Preconditions;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ArrayListMultimap;
@@ -37,10 +36,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -54,13 +53,12 @@ import io.indexr.segment.pack.DataPack;
 import io.indexr.segment.rc.RCOperator;
 import io.indexr.server.HybridTable;
 import io.indexr.server.TablePool;
-import io.indexr.util.Trick;
 
 public class ScanWrokProvider {
   private static final Logger logger = LoggerFactory.getLogger(ScanWrokProvider.class);
   private static final double RT_COST_RATE = 3.5;
-  private static final int MIN_PACK_SPLIT_STEP = 16;
-  private static final Comparator<EndpointAffinity> eaDescCmp = (ea1, ea2) -> Double.compare(ea2.getAffinity(), ea1.getAffinity());
+  private static final int DEFAULT_PACK_SPLIT_STEP = 16;
+  private static final Random RANDOM = new Random();
 
   private static final Cache<CacheKey, Works> workCache = CacheBuilder.newBuilder()
       .initialCapacity(1024)
@@ -183,9 +181,9 @@ public class ScanWrokProvider {
 
     RCOperator rsFilter = scanSpec.getRSFilter();
     long totalRowCount = 0;
-    long validRowCount = 0;
-    int validPackCount = 0;
-    int validSegmentCount = 0;
+    long passRowCount = 0;
+    int passPackCount = 0;
+    int passSegmentCount = 0;
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
       totalRowCount += infoSegment.rowCount();
@@ -194,43 +192,44 @@ public class ScanWrokProvider {
       }
       if (rsFilter == null || rsFilter.roughCheckOnColumn(infoSegment) != RSValue.None) {
         if (infoSegment.isRealtime()) {
-          validPackCount += DataPack.rowCountToPackCount(infoSegment.rowCount());
+          passPackCount += DataPack.rowCountToPackCount(infoSegment.rowCount());
         } else {
-          validPackCount += infoSegment.packCount();
+          passPackCount += infoSegment.packCount();
         }
-        validRowCount += infoSegment.rowCount();
-        validSegmentCount++;
+        passRowCount += infoSegment.rowCount();
+        passSegmentCount++;
       } else {
         logger.debug("rs filter ignore segment {}", infoSegment.name());
       }
-      if (validRowCount >= limitScanRows) {
+      if (passRowCount >= limitScanRows) {
         break;
       }
     }
 
-    long statScanRowCount = validRowCount;
+    long statScanRowCount = passRowCount;
     if (rsFilter != null
-        && validRowCount == totalRowCount
-        && validRowCount > 0) {
+        && passRowCount == totalRowCount
+        && passRowCount > 0) {
       // We definitely want the scan node with rcFilter to win in query plan competition,
       // so that we trick the planner with less scan rows.
       // The rsFilter is good, even if it looks useless in this level, i.e. roughCheckOnColumn.
       // It could make different in next level, i.e. roughCheckOnPack.
-      statScanRowCount = validRowCount - 1;
+      statScanRowCount = passRowCount - 1;
     }
+    statScanRowCount = Math.min(statScanRowCount, limitScanRows);
 
     // estimated maxPw.
-    int packGroup = validPackCount / MIN_PACK_SPLIT_STEP;
+    int packGroup = passPackCount / DEFAULT_PACK_SPLIT_STEP;
     int maxPw;
-    if (packGroup > validSegmentCount) {
-      maxPw = (int) ((packGroup - validSegmentCount) * 0.45) + validSegmentCount;
+    if (packGroup > passSegmentCount) {
+      maxPw = (int) ((packGroup - passSegmentCount) * 0.45) + passSegmentCount;
     } else {
-      maxPw = validSegmentCount;
+      maxPw = passSegmentCount;
     }
-    maxPw = Math.max(2, maxPw);
+    maxPw = Math.max(1, maxPw);
 
-    logger.debug("=============== calStat totalRowCount:{}, validRowCount:{}, validPackCount:{}, statScanRowCount:{}, maxPw: {}",
-        totalRowCount, validRowCount, validPackCount, statScanRowCount, maxPw);
+    logger.debug("=============== calStat totalRowCount:{}, passRowCount:{}, passPackCount:{}, statScanRowCount:{}, maxPw: {}",
+        totalRowCount, passRowCount, passPackCount, statScanRowCount, maxPw);
 
     return new Stat(statScanRowCount, maxPw);
   }
@@ -262,10 +261,11 @@ public class ScanWrokProvider {
     List<SegmentFd> allSegments = table.segmentPool().all();
 
     RCOperator rsFilter = scanSpec.getRSFilter();
+
     long totalRowCount = 0;
-    long validRowCount = 0;
-    int validPackCount = 0;
-    int validSegmentCount = 0;
+    long passRowCount = 0;
+    int passSegmentCount = 0;
+
     List<InfoSegment> usedSegments = new ArrayList<>(Math.max(allSegments.size() / 2, 100));
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
@@ -274,47 +274,35 @@ public class ScanWrokProvider {
         rsFilter.materialize(infoSegment.schema().getColumns());
       }
       if (rsFilter == null || rsFilter.roughCheckOnColumn(infoSegment) != RSValue.None) {
-        if (infoSegment.isRealtime()) {
-          validPackCount += DataPack.rowCountToPackCount(infoSegment.rowCount());
-        } else {
-          validPackCount += infoSegment.packCount();
-        }
         usedSegments.add(infoSegment);
-        validRowCount += infoSegment.rowCount();
-        validSegmentCount++;
+        passRowCount += infoSegment.rowCount();
+        passSegmentCount++;
       } else {
         logger.debug("rs filter ignore segment {}", infoSegment.name());
       }
 
-      if (validRowCount >= limitScanRows) {
+      if (passRowCount >= limitScanRows) {
         break;
       }
     }
 
     if (logger.isInfoEnabled()) {
-      double passRate = totalRowCount == 0 ? 0.0 : ((double) validRowCount) / totalRowCount;
+      double passRate = totalRowCount == 0 ? 0.0 : ((double) passRowCount) / totalRowCount;
       passRate = Math.min(passRate, 1.0);
       logger.info("=============== calScanWorks limitScanRows: {}, Pass rate: {}, scan row: {}",
           limitScanRows,
           String.format("%.2f%%", (float) (passRate * 100)),
-          validRowCount);
+          passRowCount);
     }
 
     Map<String, CoordinationProtos.DrillbitEndpoint> hostEndpointMap = new HashMap<>();
+    List<CoordinationProtos.DrillbitEndpoint> endpointList = new ArrayList<>();
     for (CoordinationProtos.DrillbitEndpoint endpoint : plugin.context().getBits()) {
       hostEndpointMap.put(endpoint.getAddress(), endpoint);
+      endpointList.add(endpoint);
     }
 
-    boolean smallFetch = usedSegments.size() > 0
-        && limitScanRows <= usedSegments.get(0).rowCount()
-        && limitScanRows <= (MIN_PACK_SPLIT_STEP * DataPack.MAX_COUNT);
-
-    int packSplitStep = MIN_PACK_SPLIT_STEP;
-    if (smallFetch) {
-      // Only the first work will be used. We minimize the scan rows.
-      packSplitStep = Math.min((int) (limitScanRows / DataPack.MAX_COUNT + 1), packSplitStep);
-    }
-    int colCount = colCount(table, columns);
+    int packSplitStep = (int) Math.min(DEFAULT_PACK_SPLIT_STEP, Math.max(limitScanRows / DataPack.MAX_COUNT, 1));
 
     double hisByteCostPerRow = DrillIndexRTable.byteCostPerRow(table, columns, true);
     double rtByteCostPerRow = hisByteCostPerRow * RT_COST_RATE;
@@ -322,6 +310,10 @@ public class ScanWrokProvider {
     List<ScanCompleteWork> historyWorks = new ArrayList<>(1024);
     ListMultimap<CoordinationProtos.DrillbitEndpoint, RangeWork> realtimeWorks = ArrayListMultimap.create();
     ObjectLongHashMap<CoordinationProtos.DrillbitEndpoint> affinities = new ObjectLongHashMap<>();
+
+    long totalScanRowCount = 0;
+    int totalScanPackCount = 0;
+    int totalScanSegmentCount = 0;
 
     for (InfoSegment segment : usedSegments) {
       List<String> hosts = table.segmentLocality().getHosts(segment.name(), segment.isRealtime());
@@ -338,34 +330,56 @@ public class ScanWrokProvider {
         affinities.putOrAdd(endpoint, bytes, bytes);
         realtimeWorks.put(endpoint, new SingleWork(segment.name(), -1));
 
-        if (smallFetch) {
+        totalScanRowCount += segment.rowCount();
+        totalScanPackCount += DataPack.rowCountToPackCount(segment.rowCount());
+
+        if (totalScanRowCount >= limitScanRows) {
           break;
         }
       } else {
         // Historical segments.
         int segPackCount = segment.packCount();
+        long segRowCount = segment.rowCount();
         int startPackId = 0;
         while (startPackId < segPackCount) {
           int endPackId = Math.min(startPackId + packSplitStep, segPackCount);
           int scanPackCount = endPackId - startPackId;
 
-          long rowCount = scanPackCount * DataPack.MAX_COUNT;
+          long rowCount;
+          if (endPackId < segPackCount) {
+            rowCount = scanPackCount * DataPack.MAX_COUNT;
+          } else {
+            assert endPackId == segPackCount;
+            // We guarantee that all packs are full (DataPack.MAX_COUNT) except the last one.
+            rowCount = (scanPackCount - 1) * DataPack.MAX_COUNT + DataPack.packRowCount(segRowCount, endPackId - 1);
+          }
+
           long bytes = (long) (hisByteCostPerRow * rowCount);
           EndpointByteMap endpointByteMap = new EndpointByteMapImpl();
+          boolean assigned = false;
           for (String host : hosts) {
             CoordinationProtos.DrillbitEndpoint endpoint = hostEndpointMap.get(host);
             // endpoint may not found in this host, could be shutdown or not installed.
             if (endpoint != null) {
               endpointByteMap.add(endpoint, bytes);
               affinities.putOrAdd(endpoint, bytes, bytes);
+              assigned = true;
             }
+          }
+          if (!assigned) {
+            // Randomly pick a volunter to take it.
+            CoordinationProtos.DrillbitEndpoint endpoint = endpointList.get(RANDOM.nextInt(endpointList.size()));
+            endpointByteMap.add(endpoint, bytes);
+            affinities.putOrAdd(endpoint, bytes, bytes);
           }
           historyWorks.add(new ScanCompleteWork(segment.name(), startPackId, endPackId, bytes, endpointByteMap));
 
           startPackId = endPackId;
 
-          if (smallFetch) {
-            Preconditions.checkState(rowCount >= limitScanRows);
+          totalScanRowCount += rowCount;
+          totalScanPackCount += scanPackCount;
+
+          if (totalScanRowCount >= limitScanRows) {
             break;
           }
         }
@@ -377,22 +391,40 @@ public class ScanWrokProvider {
       endpointAffinities.add(new EndpointAffinity(cursor.key, cursor.value));
     }
 
-    // sort it in desc.
-    endpointAffinities.sort(eaDescCmp);
-    int lastRTE = Trick.indexLast(endpointAffinities, ea -> realtimeWorks.containsKey(ea.getEndpoint()));
-
-    int minPw = Math.max(1, lastRTE + 1);
+    int minPw = Math.max(1, realtimeWorks.size());
 
     // TODO fix the algorithm of maxPw
 
-    int packGroup = validPackCount / MIN_PACK_SPLIT_STEP;
+    int packGroup = totalScanPackCount / DEFAULT_PACK_SPLIT_STEP;
     int maxPw;
-    if (packGroup > validSegmentCount) {
-      maxPw = (int) ((packGroup - validSegmentCount) * 0.45) + validSegmentCount;
+    if (packGroup > passSegmentCount) {
+      maxPw = (int) ((packGroup - passSegmentCount) * 0.45) + passSegmentCount;
     } else {
-      maxPw = validSegmentCount;
+      maxPw = passSegmentCount;
     }
-    maxPw = Math.max(Math.max(2, maxPw), minPw);
+    maxPw = Math.max(Math.max(1, maxPw), minPw);
+
+    // Nodes with realtime segment works must be assigned.
+    List<EndpointAffinity> withoutRTS;
+    int withRTSEndpointCount = realtimeWorks.size();
+    if (withRTSEndpointCount == 0) {
+      withoutRTS = endpointAffinities;
+    } else {
+      withoutRTS = new ArrayList<>();
+      for (EndpointAffinity ea : endpointAffinities) {
+        if (realtimeWorks.containsKey(ea.getEndpoint())) {
+          ea.setAssignmentRequired();
+        } else {
+          withoutRTS.add(ea);
+        }
+      }
+    }
+
+    // No less than maxPw nodes should be assigned.
+    int whithoutRTSAssignRequired = Math.min(maxPw - withRTSEndpointCount, withoutRTS.size());
+    for (int i = 0; i < whithoutRTSAssignRequired; i++) {
+      withoutRTS.get(i).setAssignmentRequired();
+    }
 
     logger.debug("=============== calScanWorks minPw {}", minPw);
     logger.debug("=============== calScanWorks maxPw {}", maxPw);

@@ -143,7 +143,9 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
       curSegment = segment;
 
       // Set the attrs to the real columnIds.
-      rsFilter.materialize(schemas);
+      if (rsFilter != null) {
+        rsFilter.materialize(schemas);
+      }
       // Set the project columns to the real columnIds.
       for (int i = 0; i < projectColumnInfos.length; i++) {
         ColumnSchema column = projectColumnInfos[i].columnSchema;
@@ -156,7 +158,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
       }
     }
 
-    if (!isLateMaterialization) {
+    if (!isLateMaterialization || rsFilter == null) {
       return rowPacks;
     }
 
@@ -181,7 +183,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
   private int read(Segment segment, int packId) throws IOException {
     DataPack[] rowPacks = beforeRead(segment, packId);
     if (rowPacks == null) {
-      log.debug("rsFilter ignore (LM) segment %s, pack: %s", segment.name(), packId);
+      log.debug("rsFilter ignore (LM) segment {}, pack: {}", segment.name(), packId);
       return 0;
     }
 
@@ -313,6 +315,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
 
   @Override
   public void close() throws Exception {
+    super.close();
     log.debug("cost: getPack: {}ms, setValue: {}ms", getPackTime, setValueTime);
   }
 }

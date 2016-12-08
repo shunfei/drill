@@ -37,7 +37,11 @@ public class TestIndexRPlugin extends BaseTestQuery {
         "from indexr.campaign where user_id in (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19) and campaign_id > 10 " +
         "group by spot_id order by sum(cost) desc limit 10";
 
-    //sql = "select * from indexr.test where d1 like 'a_b%' limit 10";
+    sql = "select * from indexr.test where d1 like 'a_b%' limit 10";
+
+    //sql = "select * from indexr.test limit 10";
+
+    //sql = "SELECT `package_id` FROM indexr.campaign GROUP BY `package_id` ORDER BY (CAST(sum(`cost_over2`) AS DOUBLE) / NULLIF(100, 0)) DESC NULLS LAST";
 
     //test("explain plan for " + sql);
     test(sql);

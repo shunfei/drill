@@ -37,6 +37,7 @@ import org.apache.drill.exec.physical.base.GroupScan;
 import org.apache.drill.exec.physical.base.PhysicalOperator;
 import org.apache.drill.exec.physical.base.ScanStats;
 import org.apache.drill.exec.physical.base.SubScan;
+import org.apache.drill.exec.planner.fragment.DistributionAffinity;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
 import org.apache.drill.exec.store.AbstractRecordReader;
 import org.apache.drill.exec.store.StoragePluginRegistry;
@@ -374,6 +375,12 @@ public class IndexRGroupScan extends AbstractGroupScan {
   @JsonIgnore
   public String getDigest() {
     return toString();
+  }
+
+  @Override
+  public DistributionAffinity getDistributionAffinity() {
+    // It is required to schedule realtime segment scans to thire hosting nodes.
+    return DistributionAffinity.HARD;
   }
 
   @Override

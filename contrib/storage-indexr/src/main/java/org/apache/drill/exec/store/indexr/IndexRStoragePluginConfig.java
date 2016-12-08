@@ -18,7 +18,6 @@
 package org.apache.drill.exec.store.indexr;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 
 import org.apache.drill.common.logical.StoragePluginConfigBase;
@@ -31,15 +30,8 @@ public class IndexRStoragePluginConfig extends StoragePluginConfigBase {
 
   public static final String NAME = "indexr";
 
-  // Those params are useless, but we keep it here to avoid json exceptions when updating old clusters.
-  // And should be removed after all clusters are updated to new config.
   @JsonCreator
-  public IndexRStoragePluginConfig(@JsonProperty("maxScanThreadsPerNode") Integer maxScanThreadsPerNode,//
-                                   @JsonProperty("resourceReserveRate") Float resourceReserveRate,//
-                                   @JsonProperty("enableRSFilter") Boolean enableRSFilter,//
-                                   @JsonProperty("enableMemCache") Boolean enableMemCache,//
-                                   @JsonProperty("singleQueryMemCacheThreshold") Float singleQueryMemCacheThreshold,//
-                                   @JsonProperty("isCompress") Boolean isCompress) {}
+  public IndexRStoragePluginConfig() {}
 
   @Override
   public boolean equals(Object o) {
