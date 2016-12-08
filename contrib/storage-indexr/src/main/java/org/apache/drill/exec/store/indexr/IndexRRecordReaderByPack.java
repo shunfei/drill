@@ -104,30 +104,29 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
 
   @Override
   public int next() {
-    try {
-      int read = -1;
-      while (read <= 0) {
-        if (curStepId >= works.size()) {
-          return 0;
-        }
-
-        SingleWork stepWork = works.get(curStepId);
-        curStepId++;
-
-        Segment segment = segmentMap.get(stepWork.segment());
-        int packId = stepWork.packId();
-
-        read = read(segment, packId);
+    int read = -1;
+    while (read <= 0) {
+      if (curStepId >= works.size()) {
+        return 0;
       }
-      return read;
-    } catch (Throwable t) {
-      // No matter or what, don't thrown exception from here.
-      // It will break the Drill algorithm and make system unpredictable.
-      // I do think Drill should handle this...
 
-      log.error("Read rows error, query may return incorrect result.", t);
-      return 0;
+      SingleWork stepWork = works.get(curStepId);
+      curStepId++;
+
+      Segment segment = segmentMap.get(stepWork.segment());
+      int packId = stepWork.packId();
+      try {
+        read = read(segment, packId);
+      } catch (Throwable t) {
+        // No matter or what, don't thrown exception from here.
+        // It will break the Drill algorithm and make system unpredictable.
+        // I do think Drill should handle this...
+
+        log.error("Read rows error, query may return incorrect result.", t);
+        read = 0;
+      }
     }
+    return read;
   }
 
   /**

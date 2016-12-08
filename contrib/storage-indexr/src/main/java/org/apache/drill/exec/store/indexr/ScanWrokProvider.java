@@ -63,12 +63,12 @@ public class ScanWrokProvider {
   private static final Cache<CacheKey, Works> workCache = CacheBuilder.newBuilder()
       .initialCapacity(1024)
       .expireAfterAccess(5, TimeUnit.MINUTES)
-      .maximumSize(2048)
+      .maximumSize(4096)
       .build();
   private static final Cache<CacheKey, Stat> statCache = CacheBuilder.newBuilder()
       .initialCapacity(1024)
       .expireAfterAccess(5, TimeUnit.MINUTES)
-      .maximumSize(2048)
+      .maximumSize(4096)
       .build();
 
   private static class CacheKey {
@@ -367,7 +367,7 @@ public class ScanWrokProvider {
             }
           }
           if (!assigned) {
-            // Randomly pick a volunter to take it.
+            // Randomly pick a volunteer to take it.
             CoordinationProtos.DrillbitEndpoint endpoint = endpointList.get(RANDOM.nextInt(endpointList.size()));
             endpointByteMap.add(endpoint, bytes);
             affinities.putOrAdd(endpoint, bytes, bytes);

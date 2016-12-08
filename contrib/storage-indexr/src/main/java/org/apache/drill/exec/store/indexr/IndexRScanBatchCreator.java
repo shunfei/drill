@@ -59,7 +59,7 @@ public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
   private static final Cache<String, Assignment> assignmentCache = CacheBuilder.newBuilder()//
       .initialCapacity(1024)//
       .expireAfterAccess(5, TimeUnit.MINUTES)//
-      .maximumSize(2048)//
+      .maximumSize(4096)//
       .build();
 
   @Override

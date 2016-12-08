@@ -60,31 +60,30 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
 
   @Override
   public int next() {
-    try {
-      int read = -1;
-      while (read < 0) {
-        if (curIterator == null || !curIterator.hasNext()) {
-          if (nextStepId >= works.size()) {
-            return 0;
-          }
-
-          SingleWork stepWork = works.get(nextStepId);
-          nextStepId++;
-          curSegment = segmentMap.get(stepWork.segment());
-          curIterator = curSegment.rowTraversal().iterator();
+    int read = -1;
+    while (read <= 0) {
+      if (curIterator == null || !curIterator.hasNext()) {
+        if (nextStepId >= works.size()) {
+          return 0;
         }
+        SingleWork stepWork = works.get(nextStepId);
+        nextStepId++;
+        curSegment = segmentMap.get(stepWork.segment());
+        curIterator = curSegment.rowTraversal().iterator();
+      }
 
+      try {
         read = read(curSegment.schema(), curIterator, DataPack.MAX_COUNT);
+      } catch (Throwable t) {
+        log.error("Read rows error, query may return incorrect result.", t);
+        read = 0;
       }
-      for (ProjectedColumnInfo info : projectColumnInfos) {
-        info.valueVector.getMutator().setValueCount(read);
-      }
-
-      return read;
-    } catch (Throwable t) {
-      log.error("Read rows error, query may return incorrect result.", t);
-      return 0;
     }
+    for (ProjectedColumnInfo info : projectColumnInfos) {
+      info.valueVector.getMutator().setValueCount(read);
+    }
+
+    return read;
   }
 
   private int read(SegmentSchema schema, Iterator<Row> iterator, int maxRow) {
