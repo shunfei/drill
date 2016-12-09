@@ -42,11 +42,13 @@ import io.indexr.segment.pack.DataPack;
 import io.indexr.util.MemoryUtil;
 
 public class IndexRRecordReaderByRow extends IndexRRecordReader {
-  private static final Logger log = LoggerFactory.getLogger(IndexRRecordReaderByPack.class);
+  private static final Logger log = LoggerFactory.getLogger(IndexRRecordReaderByRow.class);
 
   private int nextStepId = 0;
   private Iterator<Row> curIterator;
   private Segment curSegment;
+
+  private long setValueTime = 0;
 
   public IndexRRecordReaderByRow(String tableName,//
                                  SegmentSchema segmentSchema,//
@@ -73,7 +75,9 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
       }
 
       try {
+        long time = System.currentTimeMillis();
         read = read(curSegment.schema(), curIterator, DataPack.MAX_COUNT);
+        setValueTime += System.currentTimeMillis() - time;
       } catch (Throwable t) {
         log.error("Read rows error, query may return incorrect result.", t);
         read = 0;
@@ -151,5 +155,11 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
       rowId++;
     }
     return rowId;
+  }
+
+  @Override
+  public void close() throws Exception {
+    super.close();
+    log.debug("cost: setValue: {}ms", setValueTime);
   }
 }

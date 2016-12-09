@@ -30,6 +30,7 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.expression.SchemaPath;
+import org.apache.drill.exec.ExecConstants;
 import org.apache.drill.exec.physical.EndpointAffinity;
 import org.apache.drill.exec.physical.PhysicalOperatorSetupException;
 import org.apache.drill.exec.physical.base.AbstractGroupScan;
@@ -209,14 +210,16 @@ public class IndexRGroupScan extends AbstractGroupScan {
     try {
       HybridTable table = plugin.indexRNode().getTablePool().get(scanSpec.getTableName());
       logger.debug("=============== getScanStats, scanRowCount: {}", scanRowCount);
-      if (scanRowCount <= 100000 && table.segmentPool().realtimeHosts().size() > 0) {
+
+      // Ugly hack!
+      if (scanRowCount <= ExecConstants.SLICE_TARGET_DEFAULT && table.segmentPool().realtimeHosts().size() > 0) {
 
         // We must make the planner use exchange which can spreads the query fragments among nodes.
         // Otherwise realtime segments won't be able to query.
         // We keep the scan rows over a threshold to acheive this.
         // TODO Somebody please get a better idea ...
 
-        long useRowCount = 100000;
+        long useRowCount = ExecConstants.SLICE_TARGET_DEFAULT;
         return new ScanStats(ScanStats.GroupScanProperty.NO_EXACT_ROW_COUNT, useRowCount, 1, useRowCount * colCount(table));
       } else {
         return new ScanStats(ScanStats.GroupScanProperty.EXACT_ROW_COUNT, scanRowCount, 1, scanRowCount * colCount(table));
@@ -379,8 +382,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
   @Override
   public DistributionAffinity getDistributionAffinity() {
-    // It is required to schedule realtime segment scans to thire hosting nodes.
-    return DistributionAffinity.HARD;
+    return DistributionAffinity.SOFT;
   }
 
   @Override

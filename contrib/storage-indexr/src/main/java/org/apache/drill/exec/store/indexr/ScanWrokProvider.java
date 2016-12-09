@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,12 +54,14 @@ import io.indexr.segment.pack.DataPack;
 import io.indexr.segment.rc.RCOperator;
 import io.indexr.server.HybridTable;
 import io.indexr.server.TablePool;
+import io.indexr.util.Trick;
 
 public class ScanWrokProvider {
   private static final Logger logger = LoggerFactory.getLogger(ScanWrokProvider.class);
-  private static final double RT_COST_RATE = 3.5;
+  private static final double RT_COST_RATE = 100;
   private static final int DEFAULT_PACK_SPLIT_STEP = 16;
   private static final Random RANDOM = new Random();
+  private static final Comparator<EndpointAffinity> eaDescCmp = (ea1, ea2) -> Double.compare(ea2.getAffinity(), ea1.getAffinity());
 
   private static final Cache<CacheKey, Works> workCache = CacheBuilder.newBuilder()
       .initialCapacity(1024)
@@ -313,7 +316,6 @@ public class ScanWrokProvider {
 
     long totalScanRowCount = 0;
     int totalScanPackCount = 0;
-    int totalScanSegmentCount = 0;
 
     for (InfoSegment segment : usedSegments) {
       List<String> hosts = table.segmentLocality().getHosts(segment.name(), segment.isRealtime());
@@ -391,7 +393,11 @@ public class ScanWrokProvider {
       endpointAffinities.add(new EndpointAffinity(cursor.key, cursor.value));
     }
 
-    int minPw = Math.max(1, realtimeWorks.size());
+    // sort it in desc.
+    endpointAffinities.sort(eaDescCmp);
+    int lastRTE = Trick.indexLast(endpointAffinities, ea -> realtimeWorks.containsKey(ea.getEndpoint()));
+    // Make sure nodes with realtime segments can be assigned.
+    int minPw = Math.max(1, lastRTE + 1);
 
     // TODO fix the algorithm of maxPw
 
@@ -402,29 +408,7 @@ public class ScanWrokProvider {
     } else {
       maxPw = passSegmentCount;
     }
-    maxPw = Math.max(Math.max(1, maxPw), minPw);
-
-    // Nodes with realtime segment works must be assigned.
-    List<EndpointAffinity> withoutRTS;
-    int withRTSEndpointCount = realtimeWorks.size();
-    if (withRTSEndpointCount == 0) {
-      withoutRTS = endpointAffinities;
-    } else {
-      withoutRTS = new ArrayList<>();
-      for (EndpointAffinity ea : endpointAffinities) {
-        if (realtimeWorks.containsKey(ea.getEndpoint())) {
-          ea.setAssignmentRequired();
-        } else {
-          withoutRTS.add(ea);
-        }
-      }
-    }
-
-    // No less than maxPw nodes should be assigned.
-    int whithoutRTSAssignRequired = Math.min(maxPw - withRTSEndpointCount, withoutRTS.size());
-    for (int i = 0; i < whithoutRTSAssignRequired; i++) {
-      withoutRTS.get(i).setAssignmentRequired();
-    }
+    maxPw = Math.max(maxPw, minPw);
 
     logger.debug("=============== calScanWorks minPw {}", minPw);
     logger.debug("=============== calScanWorks maxPw {}", maxPw);
