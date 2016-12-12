@@ -42,6 +42,7 @@ import org.apache.drill.exec.planner.fragment.DistributionAffinity;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
 import org.apache.drill.exec.store.AbstractRecordReader;
 import org.apache.drill.exec.store.StoragePluginRegistry;
+import org.apache.drill.exec.store.indexr.LocalFirstAssigner.EndpointAssignment;
 import org.apache.drill.exec.store.indexr.ScanWrokProvider.FragmentAssignment;
 import org.apache.drill.exec.store.indexr.ScanWrokProvider.Stat;
 import org.apache.drill.exec.store.indexr.ScanWrokProvider.Works;
@@ -53,6 +54,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import io.indexr.segment.helper.RangeWork;
 import io.indexr.server.HybridTable;
@@ -60,6 +62,7 @@ import io.indexr.server.HybridTable;
 @JsonTypeName("indexr-scan")
 public class IndexRGroupScan extends AbstractGroupScan {
   private static final Logger logger = LoggerFactory.getLogger(IndexRGroupScan.class);
+  private static final boolean USE_LOCAL_FIRST_ASSIGNER = false;
 
   private final IndexRStoragePlugin plugin;
   private final String scanId;
@@ -212,7 +215,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
       logger.debug("=============== getScanStats, scanRowCount: {}", scanRowCount);
 
       // Ugly hack!
-      if (scanRowCount <= ExecConstants.SLICE_TARGET_DEFAULT && table.segmentPool().realtimeHosts().size() > 0) {
+      if (scanRowCount <= ExecConstants.SLICE_TARGET_DEFAULT) {
 
         // We must make the planner use exchange which can spreads the query fragments among nodes.
         // Otherwise realtime segments won't be able to query.
@@ -239,7 +242,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
     try {
       Works works = calWorks(true);
       List<ScanCompleteWork> historyWorks = works.historyWorks;
-      ListMultimap<DrillbitEndpoint, RangeWork> realtimeWorks = works.realtimeWorks;
+      ListMultimap<DrillbitEndpoint, ScanCompleteWork> realtimeWorks = works.realtimeWorks;
       for (DrillbitEndpoint endpoint : realtimeWorks.keySet()) {
         if (!endpoints.contains(endpoint)) {
           String errorMsg = String.format(//
@@ -251,24 +254,34 @@ public class IndexRGroupScan extends AbstractGroupScan {
       }
 
       ListMultimap<DrillbitEndpoint, RangeWork> endpointToWorks = ArrayListMultimap.create();
+
+      if (USE_LOCAL_FIRST_ASSIGNER) {
+        List<ScanCompleteWork> allWorks = new ArrayList<>(historyWorks);
+        for (DrillbitEndpoint endpoint : realtimeWorks.keySet()) {
+          allWorks.addAll(realtimeWorks.get(endpoint));
+        }
+        Map<DrillbitEndpoint, EndpointAssignment> fakeAssignments = new LocalFirstAssigner(endpoints, allWorks).assign();
+        for (EndpointAssignment assignment : fakeAssignments.values()) {
+          endpointToWorks.putAll(assignment.endpoint, assignment.works);
+        }
+      } else {
+        // Put history works.
+        ListMultimap<Integer, ScanCompleteWork> fakeAssignments = AssignmentCreator.getMappings(endpoints, historyWorks);
+        for (int id = 0; id < endpoints.size(); id++) {
+          DrillbitEndpoint endpoint = endpoints.get(id);
+          endpointToWorks.putAll(endpoint, fakeAssignments.get(id));
+        }
+        // Put reatlime works.
+        for (DrillbitEndpoint endpoint : realtimeWorks.keySet()) {
+          endpointToWorks.putAll(endpoint, realtimeWorks.get(endpoint));
+        }
+      }
+
       ListMultimap<DrillbitEndpoint, Integer> endpointToMinoFragmentId = ArrayListMultimap.create();
-
-      // Put history works.
-      ListMultimap<Integer, ScanCompleteWork> fakeAssignments = AssignmentCreator.getMappings(endpoints, historyWorks);
-      for (int id = 0; id < endpoints.size(); id++) {
-        DrillbitEndpoint endpoint = endpoints.get(id);
-
-        endpointToWorks.putAll(endpoint, fakeAssignments.get(id));
-        endpointToMinoFragmentId.put(endpoint, id);
-      }
-
-      // Put reatlime works.
-      for (DrillbitEndpoint endpoint : realtimeWorks.keySet()) {
-        endpointToWorks.putAll(endpoint, realtimeWorks.get(endpoint));
-      }
-
       HashMap<Integer, FragmentAssignment> assignments = new HashMap<>();
-
+      for (int id = 0; id < endpoints.size(); id++) {
+        endpointToMinoFragmentId.put(endpoints.get(id), id);
+      }
       for (int id = 0; id < endpoints.size(); id++) {
         DrillbitEndpoint endpoint = endpoints.get(id);
 
@@ -308,7 +321,8 @@ public class IndexRGroupScan extends AbstractGroupScan {
   @JsonIgnore
   public int getMinParallelizationWidth() {
     try {
-      int pw = calWorks(true).minPw;
+      Works works = calWorks(false);
+      int pw = works != null ? works.minPw : calStat().minPw;
       logger.debug("=============== getMinParallelizationWidth {}", pw);
       return pw;
     } catch (Exception e) {
@@ -382,7 +396,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
   @Override
   public DistributionAffinity getDistributionAffinity() {
-    return DistributionAffinity.SOFT;
+    return DistributionAffinity.HARD;
   }
 
   @Override
