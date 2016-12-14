@@ -19,7 +19,9 @@ package org.apache.drill.exec.store.indexr;
 
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
+import org.apache.calcite.sql.SqlCollation;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.Util;
 import org.apache.commons.lang.StringUtils;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.common.types.TypeProtos.MinorType;
@@ -65,7 +67,11 @@ public class DrillIndexRTable extends DynamicDrillTable {
       case ColumnType.DOUBLE:
         return typeFactory.createSqlType(SqlTypeName.DOUBLE);
       case ColumnType.STRING:
-        return typeFactory.createSqlType(SqlTypeName.VARCHAR, ColumnType.MAX_STRING_UTF8_SIZE);
+        return typeFactory.createTypeWithCharsetAndCollation(
+            typeFactory.createSqlType(SqlTypeName.VARCHAR, ColumnType.MAX_STRING_UTF8_SIZE),
+            Util.getDefaultCharset(),
+            SqlCollation.IMPLICIT
+        );
       default:
         throw new UnsupportedOperationException(String.format("Unsupported type [%s]", type));
     }
