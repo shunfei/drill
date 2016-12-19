@@ -19,8 +19,6 @@ package org.apache.drill.exec.store.indexr;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ListMultimap;
 
 import com.carrotsearch.hppc.ObjectLongHashMap;
 import com.carrotsearch.hppc.cursors.ObjectLongCursor;
@@ -63,7 +61,6 @@ public class ScanWrokProvider {
   private static final double RT_COST_RATE = 3.5;
   private static final int DEFAULT_PACK_SPLIT_STEP = 16;
   private static final Random RANDOM = new Random();
-  //private static final Comparator<EndpointAffinity> eaDescCmp = (ea1, ea2) -> Double.compare(ea2.getAffinity(), ea1.getAffinity());
 
   private static final Cache<CacheKey, Works> workCache = CacheBuilder.newBuilder()
       .initialCapacity(1024)
@@ -124,13 +121,13 @@ public class ScanWrokProvider {
     public final int minPw;
     public final int maxPw;
     public final List<ScanCompleteWork> historyWorks;
-    public final ListMultimap<DrillbitEndpoint, ScanCompleteWork> realtimeWorks;
+    public final Map<DrillbitEndpoint, List<ScanCompleteWork>> realtimeWorks;
     public final List<EndpointAffinity> endpointAffinities;
 
     public Works(int minPw,
                  int maxPw,
                  List<ScanCompleteWork> historyWorks,
-                 ListMultimap<DrillbitEndpoint, ScanCompleteWork> realtimeWorks,
+                 Map<DrillbitEndpoint, List<ScanCompleteWork>> realtimeWorks,
                  List<EndpointAffinity> endpointAffinities) {
       this.minPw = minPw;
       this.maxPw = maxPw;
@@ -228,6 +225,8 @@ public class ScanWrokProvider {
     }
     statScanRowCount = Math.min(statScanRowCount, limitScanRows);
 
+    int minPw = Math.max(1, realtimeNodes.size());
+
     // estimated maxPw.
     int packGroup = passPackCount / DEFAULT_PACK_SPLIT_STEP;
     int maxPw;
@@ -237,15 +236,14 @@ public class ScanWrokProvider {
       maxPw = passSegmentCount;
     }
 
-    int minPw = Math.max(1, realtimeNodes.size());
-
     // Hack!!!
     // Drill HardAffinityFragmentParallelizer will slice the scan rows to decide the maxPw,
     // we also need to do it here.
     maxPw = Math.min((int) Math.ceil((double) statScanRowCount / ExecConstants.SLICE_TARGET_DEFAULT), maxPw);
     maxPw = Math.max(minPw, maxPw);
-    // We use at least 2 max pw to avoid some strange errors in parallelizer.
-    maxPw = Math.max(2, maxPw);
+
+    // Add one width to advoid some error from drill.
+    maxPw++;
 
     logger.debug("=============== calStat totalRowCount:{}, passRowCount:{}, passPackCount:{}, statScanRowCount:{}, maxPw: {}",
         totalRowCount, passRowCount, passPackCount, statScanRowCount, maxPw);
@@ -327,7 +325,7 @@ public class ScanWrokProvider {
     double rtByteCostPerRow = hisByteCostPerRow * RT_COST_RATE;
 
     List<ScanCompleteWork> historyWorks = new ArrayList<>(1024);
-    ListMultimap<DrillbitEndpoint, ScanCompleteWork> realtimeWorks = ArrayListMultimap.create();
+    Map<DrillbitEndpoint, List<ScanCompleteWork>> realtimeWorks = new HashMap<>();
     ObjectLongHashMap<DrillbitEndpoint> affinities = new ObjectLongHashMap<>();
 
     long totalScanRowCount = 0;
@@ -349,7 +347,13 @@ public class ScanWrokProvider {
 
         EndpointByteMap endpointByteMap = new EndpointByteMapImpl();
         endpointByteMap.add(endpoint, bytes);
-        realtimeWorks.put(endpoint, new ScanCompleteWork(segment.name(), -1, 0, bytes, endpointByteMap));
+
+        List<ScanCompleteWork> rtWorks = realtimeWorks.get(endpoint);
+        if (rtWorks == null) {
+          rtWorks = new ArrayList<>();
+          realtimeWorks.put(endpoint, rtWorks);
+        }
+        rtWorks.add(new ScanCompleteWork(segment.name(), -1, 0, bytes, endpointByteMap));
 
         totalScanRowCount += segment.rowCount();
         totalScanPackCount += DataPack.rowCountToPackCount(segment.rowCount());
@@ -417,12 +421,6 @@ public class ScanWrokProvider {
     }
     endpointAffinities.sort(new RTSFirstDesc(realtimeWorks));
 
-    //// sort it in desc.
-    //endpointAffinities.sort(eaDescCmp);
-    //int lastRTE = Trick.indexLast(endpointAffinities, ea -> realtimeWorks.containsKey(ea.getEndpoint()));
-    //// Make sure nodes with realtime segments can be assigned.
-    //int minPw = Math.max(1, lastRTE + 1);
-
     int minPw = Math.max(1, realtimeWorks.size());
 
     // TODO fix the algorithm of maxPw
@@ -448,14 +446,11 @@ public class ScanWrokProvider {
       ea.setAssignmentRequired();
     }
 
-    // We use at least 2 max pw to avoid some strange errors in parallelizer.
-    maxPw = Math.max(2, maxPw);
+    // Add one width to advoid some error from drill.
+    maxPw++;
 
-    logger.debug("=============== calScanWorks minPw {}", minPw);
-    logger.debug("=============== calScanWorks maxPw {}", maxPw);
-    logger.debug("=============== calScanWorks historyWorks {}", historyWorks);
-    logger.debug("=============== calScanWorks realtimeWorks {}", realtimeWorks);
-    logger.debug("=============== calScanWorks endpointAffinities {}", endpointAffinities);
+    logger.debug("=============== calScanWorks minPw: {}, maxPw: {}, historyWorks: {}, realtimeWorks({}): {}, endpointAffinities: {}",
+        minPw, maxPw, historyWorks, realtimeWorks.size(), realtimeWorks, endpointAffinities);
 
     return new Works(minPw, maxPw, historyWorks, realtimeWorks, endpointAffinities);
   }
@@ -474,9 +469,9 @@ public class ScanWrokProvider {
 
   private static class RTSFirstDesc implements Comparator<EndpointAffinity> {
 
-    final ListMultimap<DrillbitEndpoint, ScanCompleteWork> isRealtime;
+    final Map<DrillbitEndpoint, List<ScanCompleteWork>> isRealtime;
 
-    public RTSFirstDesc(ListMultimap<DrillbitEndpoint, ScanCompleteWork> isRealtime) {
+    public RTSFirstDesc(Map<DrillbitEndpoint, List<ScanCompleteWork>> isRealtime) {
       this.isRealtime = isRealtime;
     }
 

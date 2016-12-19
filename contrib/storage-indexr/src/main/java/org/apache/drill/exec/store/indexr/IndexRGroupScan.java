@@ -242,7 +242,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
     try {
       Works works = calWorks(true);
       List<ScanCompleteWork> historyWorks = works.historyWorks;
-      ListMultimap<DrillbitEndpoint, ScanCompleteWork> realtimeWorks = works.realtimeWorks;
+      Map<DrillbitEndpoint, List<ScanCompleteWork>> realtimeWorks = works.realtimeWorks;
       for (DrillbitEndpoint endpoint : realtimeWorks.keySet()) {
         if (!endpoints.contains(endpoint)) {
           String errorMsg = String.format(//
@@ -265,6 +265,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
           endpointToWorks.putAll(assignment.endpoint, assignment.works);
         }
       } else {
+
         // Put history works.
         ListMultimap<Integer, ScanCompleteWork> fakeAssignments = AssignmentCreator.getMappings(endpoints, historyWorks);
         for (int id = 0; id < endpoints.size(); id++) {
