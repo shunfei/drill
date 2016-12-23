@@ -23,10 +23,12 @@ import org.apache.drill.common.expression.FunctionCall;
 import org.apache.drill.common.expression.LogicalExpression;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.common.expression.visitors.AbstractExprVisitor;
+import org.apache.spark.unsafe.types.UTF8String;
 
 import java.util.ArrayList;
 import java.util.List;
 
+import io.indexr.segment.ColumnSchema;
 import io.indexr.segment.rc.And;
 import io.indexr.segment.rc.Attr;
 import io.indexr.segment.rc.Equal;
@@ -40,6 +42,7 @@ import io.indexr.segment.rc.NotEqual;
 import io.indexr.segment.rc.Or;
 import io.indexr.segment.rc.RCOperator;
 import io.indexr.segment.rc.UnknownOperator;
+import io.indexr.server.TableSchema;
 
 public class RSFilterGenerator extends AbstractExprVisitor<RCOperator, Void, RuntimeException> {
   private IndexRGroupScan groupScan;
@@ -94,55 +97,36 @@ public class RSFilterGenerator extends AbstractExprVisitor<RCOperator, Void, Run
       return new UnknownOperator(ExpressionStringBuilder.toString(call));
     }
     RCOperator operator;
-    String fieldName = processor.getPath().getAsUnescapedPath();
+    Attr attr = genAttr(processor.getPath());
+    long numValue = processor.getNumValue(attr.columType());
+    UTF8String strValue = processor.getUTF8StrValue();
     switch (processor.getFunctionName()) {
       case "equal": {
-        operator = new Equal(
-            genAttr(processor.getPath()),
-            processor.getNumValue(),
-            processor.getUTF8StrValue());
+        operator = new Equal(attr, numValue, strValue);
         break;
       }
       case "not_equal": {
-        operator = new NotEqual(
-            genAttr(processor.getPath()),
-            processor.getNumValue(),
-            processor.getUTF8StrValue());
+        operator = new NotEqual(attr, numValue, strValue);
         break;
       }
       case "greater_than_or_equal_to": {
-        operator = new GreaterEqual(
-            genAttr(processor.getPath()),
-            processor.getNumValue(),
-            processor.getUTF8StrValue());
+        operator = new GreaterEqual(attr, numValue, strValue);
         break;
       }
       case "greater_than": {
-        operator = new Greater(
-            genAttr(processor.getPath()),
-            processor.getNumValue(),
-            processor.getUTF8StrValue());
+        operator = new Greater(attr, numValue, strValue);
         break;
       }
       case "less_than_or_equal_to": {
-        operator = new LessEqual(
-            genAttr(processor.getPath()),
-            processor.getNumValue(),
-            processor.getUTF8StrValue());
+        operator = new LessEqual(attr, numValue, strValue);
         break;
       }
       case "less_than": {
-        operator = new Less(
-            genAttr(processor.getPath()),
-            processor.getNumValue(),
-            processor.getUTF8StrValue());
+        operator = new Less(attr, numValue, strValue);
         break;
       }
       case "like": {
-        operator = new Like(
-            genAttr(processor.getPath()),
-            processor.getNumValue(),
-            processor.getUTF8StrValue());
+        operator = new Like(attr, numValue, strValue);
         break;
       }
       default:
@@ -156,6 +140,9 @@ public class RSFilterGenerator extends AbstractExprVisitor<RCOperator, Void, Run
   }
 
   private Attr genAttr(SchemaPath path) {
-    return new Attr(DrillIndexRTable.toColName(groupScan.getScanSpec().getTableName(), path));
+    String tableName = groupScan.getScanSpec().getTableName();
+    TableSchema schema = groupScan.getStoragePlugin().indexRNode().getTablePool().getTableSchema(tableName);
+    ColumnSchema columnSchema = DrillIndexRTable.mapColumn(tableName, schema.schema, path).first;
+    return new Attr(columnSchema.getName(), columnSchema.getDataType());
   }
 }

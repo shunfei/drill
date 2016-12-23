@@ -29,7 +29,10 @@ import org.apache.spark.unsafe.types.UTF8String;
 
 import java.util.Set;
 
+import io.indexr.segment.ColumnType;
+
 public class CmpOpProcessor extends AbstractExprVisitor<Boolean, LogicalExpression, RuntimeException> {
+  private boolean setNum = false;
   private long numValue;
   private String strValue;
   private SchemaPath path;
@@ -49,8 +52,24 @@ public class CmpOpProcessor extends AbstractExprVisitor<Boolean, LogicalExpressi
 
   public CmpOpProcessor() {}
 
-  public long getNumValue() {
-    return numValue;
+  public long getNumValue(byte type) {
+    if (setNum) {
+      return numValue;
+    }
+    switch (type) {
+      case ColumnType.INT:
+        return Integer.parseInt(strValue);
+      case ColumnType.LONG:
+        return Long.parseLong(strValue);
+      case ColumnType.FLOAT:
+        return Double.doubleToRawLongBits(Float.parseFloat(strValue));
+      case ColumnType.DOUBLE:
+        return Double.doubleToRawLongBits(Double.parseDouble(strValue));
+      case ColumnType.STRING:
+        return numValue;
+      default:
+        throw new IllegalStateException("unsupported type " + type);
+    }
   }
 
   public String getStrValue() {
@@ -75,6 +94,7 @@ public class CmpOpProcessor extends AbstractExprVisitor<Boolean, LogicalExpressi
 
   public boolean process(FunctionCall function) {
     // clear
+    setNum = false;
     numValue = 0;
     strValue = null;
     path = null;
@@ -122,31 +142,46 @@ public class CmpOpProcessor extends AbstractExprVisitor<Boolean, LogicalExpressi
     }
 
     if (valueArg instanceof ValueExpressions.IntExpression) {
-      this.numValue = ((ValueExpressions.IntExpression) valueArg).getInt();
+      int value = ((ValueExpressions.IntExpression) valueArg).getInt();
+      this.setNum = true;
+      this.numValue = value;
+      this.strValue = String.valueOf(value);
       this.path = path;
       return true;
     }
 
     if (valueArg instanceof ValueExpressions.LongExpression) {
-      this.numValue = ((ValueExpressions.LongExpression) valueArg).getLong();
+      long value = ((ValueExpressions.LongExpression) valueArg).getLong();
+      this.setNum = true;
+      this.numValue = value;
+      this.strValue = String.valueOf(value);
       this.path = path;
       return true;
     }
 
     if (valueArg instanceof ValueExpressions.FloatExpression) {
-      this.numValue = Double.doubleToRawLongBits(((ValueExpressions.FloatExpression) valueArg).getFloat());
+      float value = ((ValueExpressions.FloatExpression) valueArg).getFloat();
+      this.setNum = true;
+      this.numValue = Double.doubleToRawLongBits(value);
+      this.strValue = String.valueOf(value);
       this.path = path;
       return true;
     }
 
     if (valueArg instanceof ValueExpressions.DoubleExpression) {
-      this.numValue = Double.doubleToRawLongBits(((ValueExpressions.DoubleExpression) valueArg).getDouble());
+      double value = ((ValueExpressions.DoubleExpression) valueArg).getDouble();
+      this.setNum = true;
+      this.numValue = Double.doubleToRawLongBits(value);
+      this.strValue = String.valueOf(value);
       this.path = path;
       return true;
     }
 
     if (valueArg instanceof ValueExpressions.BooleanExpression) {
-      this.numValue = ((ValueExpressions.BooleanExpression) valueArg).getBoolean() ? 1 : 0;
+      boolean value = ((ValueExpressions.BooleanExpression) valueArg).getBoolean();
+      this.setNum = true;
+      this.numValue = value ? 1 : 0;
+      this.strValue = String.valueOf(value);
       this.path = path;
       return true;
     }
