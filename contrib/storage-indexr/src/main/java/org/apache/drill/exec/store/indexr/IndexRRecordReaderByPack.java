@@ -67,6 +67,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
 
   private long getPackTime = 0;
   private long setValueTime = 0;
+  private long lmCheckTime = 0;
 
   private boolean isLateMaterialization = false;
   private Segment curSegment;
@@ -172,9 +173,11 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
       }
     });
 
-    byte res = rsFilter.roughCheckOnRow(rowPacks);
+    long time2 = System.currentTimeMillis();
+    getPackTime = time2 - time;
 
-    getPackTime += System.currentTimeMillis() - time;
+    byte res = rsFilter.roughCheckOnRow(rowPacks);
+    lmCheckTime += System.currentTimeMillis() - time2;
 
     return res == RSValue.None ? null : rowPacks;
   }
@@ -315,6 +318,6 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
   @Override
   public void close() throws Exception {
     super.close();
-    log.debug("cost: getPack: {}ms, setValue: {}ms", getPackTime, setValueTime);
+    log.debug("cost: getPack: {}ms, setValue: {}ms, lmCheck: {}ms", getPackTime, setValueTime, lmCheckTime);
   }
 }
