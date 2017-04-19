@@ -39,7 +39,8 @@ public class TestIndexRPlugin extends BaseTestQuery {
 
     String sql = "select * from indexr.test where `date` = '2017-02-14' limit 10";
 
-    //sql = "select * from indexr.test limit 100";
+    sql = "select count(*)  from indexr.test where m1 <= 0 ";
+    //sql = "select * from indexr.test where `date` >= '2017-02-14' and m1 = 10000 and `date` <= '2017-02-16' limit 100";
 
     //sql = "SELECT `package_id` FROM indexr.campaign GROUP BY `package_id` ORDER BY (CAST(sum(`cost_over2`) AS DOUBLE) / NULLIF(100, 0)) DESC NULLS LAST";
 

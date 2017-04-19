@@ -30,7 +30,6 @@ import org.apache.drill.exec.store.AbstractRecordReader;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Predicate;
 
 import io.indexr.segment.ColumnSchema;
 import io.indexr.segment.ColumnType;
@@ -120,16 +119,14 @@ public class DrillIndexRTable extends DynamicDrillTable {
   }
 
   private static Pair<ColumnSchema, Integer> mapColumn(SegmentSchema segmentSchema, String colName) {
-    int[] ordinal = new int[]{-1};
-    ColumnSchema cs = segmentSchema.columns.stream().filter(
-        new Predicate<ColumnSchema>() {
-          @Override
-          public boolean test(ColumnSchema schema) {
-            ordinal[0]++;
-            return schema.name.equalsIgnoreCase(colName);
-          }
-        }).findFirst().get();
-    return cs == null ? null : Pair.of(cs, ordinal[0]);
+    int id = 0;
+    for (ColumnSchema cs : segmentSchema.getColumns()) {
+      if (StringUtils.equalsIgnoreCase(cs.getName(), colName)) {
+        return Pair.of(cs, id);
+      }
+      id++;
+    }
+    throw new IllegalStateException(String.format("[%s] not found in %s", colName, segmentSchema));
   }
 
   public static Integer mapColumn(ColumnSchema columnSchema, SegmentSchema segmentSchema) {

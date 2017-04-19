@@ -17,7 +17,6 @@
  */
 package org.apache.drill.exec.store.indexr;
 
-import org.apache.commons.io.IOUtils;
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.common.types.TypeProtos;
@@ -32,14 +31,9 @@ import org.apache.drill.exec.vector.ValueVector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Consumer;
 
 import io.indexr.segment.ColumnSchema;
-import io.indexr.segment.Segment;
 import io.indexr.segment.SegmentSchema;
 import io.indexr.segment.helper.SegmentOpener;
 import io.indexr.segment.helper.SingleWork;
@@ -56,7 +50,7 @@ public abstract class IndexRRecordReader extends AbstractRecordReader {
   List<SingleWork> works;
 
   ProjectedColumnInfo[] projectColumnInfos;
-  Map<String, Segment> segmentMap = new HashMap<>();
+  //Map<String, Segment> segmentMap = new HashMap<>();
 
   IndexRRecordReader(String tableName, //
                      SegmentSchema schema, //
@@ -67,6 +61,7 @@ public abstract class IndexRRecordReader extends AbstractRecordReader {
     this.schema = schema;
     this.segmentOpener = segmentOpener;
     this.works = works;
+    works.sort(SingleWork.comparator);
 
     setColumns(projectColumns);
   }
@@ -111,38 +106,38 @@ public abstract class IndexRRecordReader extends AbstractRecordReader {
         count++;
       }
     }
-
-    try {
-      for (SingleWork work : works) {
-        if (!segmentMap.containsKey(work.segment())) {
-          Segment segment = segmentOpener.open(work.segment());
-          // Check segment column here.
-          for (ProjectedColumnInfo info : projectColumnInfos) {
-            Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
-            if (columnId == null) {
-              throw new IllegalStateException(String.format("segment[%s]: column %s not found in %s", segment.name(), info.columnSchema, segment.schema()));
-            }
-          }
-          segmentMap.put(work.segment(), segment);
-        }
-      }
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+    //
+    //try {
+    //  for (SingleWork work : works) {
+    //    if (!segmentMap.containsKey(work.segment())) {
+    //      Segment segment = segmentOpener.open(work.segment());
+    //      // Check segment column here.
+    //      for (ProjectedColumnInfo info : projectColumnInfos) {
+    //        Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, segment.schema());
+    //        if (columnId == null) {
+    //          throw new IllegalStateException(String.format("segment[%s]: column %s not found in %s", segment.name(), info.columnSchema, segment.schema()));
+    //        }
+    //      }
+    //      segmentMap.put(work.segment(), segment);
+    //    }
+    //  }
+    //} catch (IOException e) {
+    //  throw new RuntimeException(e);
+    //}
   }
 
   @Override
   public void close() throws Exception {
-    if (segmentMap != null) {
-      segmentMap.values().forEach(new Consumer<Segment>() {
-        @Override
-        public void accept(Segment segment) {
-          IOUtils.closeQuietly(segment);
-        }
-      });
-      segmentMap.clear();
-      segmentMap = null;
-    }
+    //if (segmentMap != null) {
+    //  segmentMap.values().forEach(new Consumer<Segment>() {
+    //    @Override
+    //    public void accept(Segment segment) {
+    //      IOUtils.closeQuietly(segment);
+    //    }
+    //  });
+    //  segmentMap.clear();
+    //  segmentMap = null;
+    //}
     segmentOpener = null;
     works = null;
   }
