@@ -44,12 +44,12 @@ import io.indexr.segment.Segment;
 import io.indexr.segment.SegmentFd;
 import io.indexr.segment.SegmentPool;
 import io.indexr.segment.SegmentSchema;
+import io.indexr.segment.cache.IndexMemCache;
+import io.indexr.segment.cache.PackMemCache;
 import io.indexr.segment.helper.SegmentAssigner;
 import io.indexr.segment.helper.SegmentOpener;
 import io.indexr.segment.helper.SingleWork;
 import io.indexr.segment.pack.DataPack;
-import io.indexr.segment.pack.IndexMemCache;
-import io.indexr.segment.pack.PackMemCache;
 import io.indexr.server.HybridTable;
 
 public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
@@ -69,6 +69,9 @@ public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
     IndexRSubScanSpec spec = subScan.getSpec();
     IndexRStoragePlugin plugin = subScan.getPlugin();
     HybridTable table = plugin.indexRNode().getTablePool().get(spec.tableName);
+    if (table == null) {
+      throw new RuntimeException("Cannot find table [" + spec.tableName + "] in this node, please try again later or check any possible errors.");
+    }
     SegmentSchema schema = table.schema().schema;
 
     Assignment assigment;
@@ -101,7 +104,7 @@ public class IndexRScanBatchCreator implements BatchCreator<IndexRSubScan> {
     List<RecordReader> assignReaders = new ArrayList<>();
     if (assignmentList.isEmpty()) {
       logger.warn("==========subScan fragment {} have not record reader to assign", spec.scanIndex);
-      assignReaders.add(new EmptyRecordReader(schema));
+      assignReaders.add(new EmptyRecordReader(spec.tableName, schema, subScan.getColumns()));
     } else {
       if (!columned.isEmpty()) {
         assignReaders.add(//

@@ -16,14 +16,14 @@
   <parent>
     <artifactId>drill-contrib-parent</artifactId>
     <groupId>org.apache.drill.contrib</groupId>
-    <version>1.8.0</version>
+    <version>1.10.0</version>
   </parent>
 
   <artifactId>drill-indexr-storage</artifactId>
   <name>contrib/indexr-storage-plugin</name>
 
   <properties>
-    <indexr.version>0.4.0-SNAPSHOT</indexr.version>
+    <indexr.version>0.4.0</indexr.version>
   </properties>
 
   <dependencies>
@@ -129,37 +129,37 @@
 
   </dependencies>
 
-  <repositories>
-    <repository>
-      <id>cdh.repo</id>
-      <name>Cloudera Repositories</name>
-      <url>https://repository.cloudera.com/artifactory/cloudera-repos</url>
-      <snapshots>
-        <enabled>false</enabled>
-      </snapshots>
-    </repository>
-  </repositories>
+  <!--<repositories>-->
+    <!--<repository>-->
+      <!--<id>cdh.repo</id>-->
+      <!--<name>Cloudera Repositories</name>-->
+      <!--<url>https://repository.cloudera.com/artifactory/cloudera-repos</url>-->
+      <!--<snapshots>-->
+        <!--<enabled>false</enabled>-->
+      <!--</snapshots>-->
+    <!--</repository>-->
+  <!--</repositories>-->
 
-  <pluginRepositories>
-    <pluginRepository>
-      <id>apache-snapshots</id>
-      <url>https://repository.apache.org/content/groups/snapshots/</url>
-      <snapshots>
-        <enabled>true</enabled>
-      </snapshots>
-      <releases>
-        <enabled>false</enabled>
-      </releases>
+  <!--<pluginRepositories>-->
+    <!--<pluginRepository>-->
+      <!--<id>apache-snapshots</id>-->
+      <!--<url>https://repository.apache.org/content/groups/snapshots/</url>-->
+      <!--<snapshots>-->
+        <!--<enabled>true</enabled>-->
+      <!--</snapshots>-->
+      <!--<releases>-->
+        <!--<enabled>false</enabled>-->
+      <!--</releases>-->
 
-    </pluginRepository>
-  </pluginRepositories>
+    <!--</pluginRepository>-->
+  <!--</pluginRepositories>-->
 
   <build>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>2.5.1</version>
+        <version>3.5.1</version>
         <configuration>
           <source>1.8</source>
           <target>1.8</target>

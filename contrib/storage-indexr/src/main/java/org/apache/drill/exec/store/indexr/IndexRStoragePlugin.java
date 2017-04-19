@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.commons.io.IOUtils;
 import org.apache.drill.common.JSONOptions;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.exec.ops.OptimizerRulesContext;
@@ -40,19 +41,32 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import io.indexr.segment.pack.IndexMemCache;
-import io.indexr.segment.pack.PackMemCache;
+import io.indexr.segment.cache.IndexMemCache;
+import io.indexr.segment.cache.PackMemCache;
 import io.indexr.server.IndexRConfig;
 import io.indexr.server.IndexRNode;
 
 public class IndexRStoragePlugin extends AbstractStoragePlugin {
   private static final Logger log = LoggerFactory.getLogger(IndexRStoragePlugin.class);
 
+  private static IndexRNode indexRNode;
+
+  static {
+    Runtime.getRuntime().addShutdownHook(new Thread() {
+      @Override
+      public void run() {
+        if (indexRNode != null) {
+          IOUtils.closeQuietly(indexRNode);
+        }
+        indexRNode = null;
+      }
+    });
+  }
+
   private final IndexRStoragePluginConfig pluginConfig;
   private final DrillbitContext context;
   private final String pluginName;
   private final IndexRSchemaFactory schemaFactory;
-  private IndexRNode indexRNode;
   private IndexMemCache indexMemCache;
   private PackMemCache packMemCache;
 
@@ -60,8 +74,21 @@ public class IndexRStoragePlugin extends AbstractStoragePlugin {
     this.pluginConfig = engineConfig;
     this.context = context;
     this.pluginName = name;
-
     this.schemaFactory = new IndexRSchemaFactory(this);
+
+    try {
+      synchronized (IndexRStoragePlugin.class) {
+        if (indexRNode == null) {
+          log.info("Starting IndexR node.");
+          indexRNode = new IndexRNode(context.getEndpoint().getAddress());
+        }
+      }
+      IndexRConfig config = indexRNode.getConfig();
+      this.indexMemCache = config.getIndexMemCache();
+      this.packMemCache = config.getPackMemCache();
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   @Override
@@ -102,33 +129,12 @@ public class IndexRStoragePlugin extends AbstractStoragePlugin {
   @Override
   public void start() throws IOException {
     super.start();
-    try {
-      this.indexRNode = new IndexRNode(context.getEndpoint().getAddress());
-      IndexRConfig config = indexRNode.getConfig();
-      // Indexes are always cached.
-      this.indexMemCache = config.getIndexMemCache();
-      this.packMemCache = config.getPackMemCache();
-    } catch (Exception e) {
-      throw new IOException(e);
-    }
     log.info("Plugin started");
   }
 
   @Override
   public void close() throws Exception {
     super.close();
-    if (indexRNode != null) {
-      indexRNode.close();
-      indexRNode = null;
-    }
-    if (indexMemCache != null) {
-      indexMemCache.close();
-      indexMemCache = null;
-    }
-    if (packMemCache != null) {
-      packMemCache.close();
-      packMemCache = null;
-    }
     log.info("Plugin closed");
   }
 
@@ -151,7 +157,8 @@ public class IndexRStoragePlugin extends AbstractStoragePlugin {
 
   @Override
   public AbstractGroupScan getPhysicalScan(String userName, JSONOptions selection, List<SchemaPath> columns) throws IOException {
+    String scanId = UUID.randomUUID().toString();
     IndexRScanSpec scanSpec = selection.getListWith(new ObjectMapper(), new TypeReference<IndexRScanSpec>() {});
-    return new IndexRGroupScan(userName, this, scanSpec, columns, Long.MAX_VALUE, UUID.randomUUID().toString());
+    return new IndexRGroupScan(userName, this, scanSpec, columns, Long.MAX_VALUE, scanId);
   }
 }

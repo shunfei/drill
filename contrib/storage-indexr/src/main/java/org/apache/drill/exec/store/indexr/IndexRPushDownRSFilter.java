@@ -58,12 +58,11 @@ public class IndexRPushDownRSFilter {
     RCOperator rsFilter = generator.rsFilter();
     log.debug("================= rsFilter:" + rsFilter);
 
-    IndexRScanSpec newScanSpec = new IndexRScanSpec(
-        scanSpec.getTableName(),
-        rsFilter);
+    IndexRScanSpec newScanSpec = new IndexRScanSpec(scanSpec.getTableName(), rsFilter);
 
     // We also need to update the old scan node with new scanSpec, prevent too many recaculations.
-    groupScan.setScanSpec(newScanSpec);
+    // Don't set it!
+    //groupScan.setScanSpec(newScanSpec);
 
     IndexRGroupScan newGroupScan = new IndexRGroupScan(
         groupScan.getUserName(),
@@ -74,10 +73,26 @@ public class IndexRPushDownRSFilter {
         groupScan.getScanId());
 
     ScanPrel newScanPrel = ScanPrel.create(scan, filter.getTraitSet(), newGroupScan, scan.getRowType());
-    // Depending on whether is a project in the middle, assign either scan or copy of project to childRel.
+    // Depending on whether there is a project in the middle, assign either scan or copy of project to childRel.
     RelNode childRel = project == null ? newScanPrel : project.copy(project.getTraitSet(), ImmutableList.of((RelNode) newScanPrel));
 
-    call.transformTo(filter.copy(filter.getTraitSet(), ImmutableList.of(childRel)));
+    boolean hasAccurateFilter = false;
+    if (rsFilter.isAccurate()) {
+      ScanWrokProvider.Stat stat = ScanWrokProvider.getStat(
+          newGroupScan.getStoragePlugin(),
+          newScanSpec,
+          newGroupScan.getScanId(),
+          newGroupScan.getLimitScanRows(),
+          newGroupScan.getColumns());
+      hasAccurateFilter = stat.hasAccurateFilter;
+    }
+    if (hasAccurateFilter) {
+      // Since we could convert the entire filter condition expression without unknown operator,
+      // and the index is accurate, we can eliminate the filter operator altogether.
+      call.transformTo(childRel);
+    } else {
+      call.transformTo(filter.copy(filter.getTraitSet(), ImmutableList.of(childRel)));
+    }
   }
 
   public static StoragePluginOptimizerRule FilterScan = new StoragePluginOptimizerRule(

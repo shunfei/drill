@@ -17,7 +17,11 @@
  */
 package org.apache.drill.exec.store.indexr;
 
+import org.apache.commons.io.IOUtils;
+import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.expression.SchemaPath;
+import org.apache.drill.exec.ops.OperatorContext;
+import org.apache.drill.exec.physical.impl.OutputMutator;
 import org.apache.drill.exec.vector.BigIntVector;
 import org.apache.drill.exec.vector.DateVector;
 import org.apache.drill.exec.vector.Float4Vector;
@@ -35,6 +39,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import io.indexr.data.BytePiece;
+import io.indexr.segment.ColumnSchema;
 import io.indexr.segment.Row;
 import io.indexr.segment.SQLType;
 import io.indexr.segment.Segment;
@@ -51,6 +56,9 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
   private Iterator<Row> curIterator;
   private Segment curSegment;
 
+  private int[] projectColumnIds;
+
+
   private long setValueTime = 0;
 
   public IndexRRecordReaderByRow(String tableName,//
@@ -64,20 +72,38 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
   }
 
   @Override
+  public void setup(OperatorContext context, OutputMutator output) throws ExecutionSetupException {
+    super.setup(context, output);
+    this.projectColumnIds = new int[projectColumnInfos.length];
+  }
+
+  @Override
   public int next() {
     int read = -1;
     while (read <= 0) {
-      if (curIterator == null || !curIterator.hasNext()) {
-        if (nextStepId >= works.size()) {
-          return 0;
-        }
-        SingleWork stepWork = works.get(nextStepId);
-        nextStepId++;
-        curSegment = segmentMap.get(stepWork.segment());
-        curIterator = curSegment.rowTraversal().iterator();
-      }
-
       try {
+        if (curIterator == null || !curIterator.hasNext()) {
+          if (nextStepId >= works.size()) {
+            return 0;
+          }
+          SingleWork stepWork = works.get(nextStepId);
+          nextStepId++;
+
+          Segment segment;
+          if (curSegment != null
+              && curSegment.name().equals(stepWork.segment())) {
+            segment = curSegment;
+          } else {
+            IOUtils.closeQuietly(curSegment);
+
+            segment = segmentOpener.open(stepWork.segment());
+            setProjectColumnIds(segment);
+
+            curSegment = segment;
+          }
+          curIterator = segment.rowTraversal().iterator();
+        }
+
         long time = System.currentTimeMillis();
         read = read(curSegment.schema(), curIterator, DataPack.MAX_COUNT);
         setValueTime += System.currentTimeMillis() - time;
@@ -93,20 +119,21 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
     return read;
   }
 
+  private void setProjectColumnIds(Segment segment) {
+    // Set the project columns to the real columnIds.
+    for (int i = 0; i < projectColumnInfos.length; i++) {
+      ColumnSchema column = projectColumnInfos[i].columnSchema;
+      Integer columnId = DrillIndexRTable.mapColumn(column, segment.schema());
+      if (columnId == null) {
+        throw new IllegalStateException(String.format("segment[%s]: column %s not found in %s",
+            segment.name(), column, segment.schema()));
+      }
+      projectColumnIds[i] = columnId;
+    }
+  }
+
   private int read(SegmentSchema schema, Iterator<Row> iterator, int maxRow) {
     int colCount = projectColumnInfos.length;
-    SQLType[] sqlTypes = new SQLType[colCount];
-    int[] columnIds = new int[colCount];
-    for (int i = 0; i < colCount; i++) {
-      ProjectedColumnInfo info = projectColumnInfos[i];
-      Integer columnId = DrillIndexRTable.mapColumn(info.columnSchema, schema);
-      if (columnId == null) {
-        log.error("column {} not found in {}", info.columnSchema, schema);
-        return -1;
-      }
-      sqlTypes[i] = info.columnSchema.getSqlType();
-      columnIds[i] = columnId;
-    }
     int rowId = 0;
     BytePiece bp = new BytePiece();
     ByteBuffer byteBuffer = MemoryUtil.getHollowDirectByteBuffer();
@@ -114,8 +141,8 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
       Row row = iterator.next();
       for (int i = 0; i < colCount; i++) {
         ProjectedColumnInfo info = projectColumnInfos[i];
-        int columnId = columnIds[i];
-        SQLType sqlType = sqlTypes[i];
+        int columnId = projectColumnIds[i];
+        SQLType sqlType = info.columnSchema.getSqlType();
         switch (sqlType) {
           case INT: {
             IntVector.Mutator mutator = (IntVector.Mutator) info.valueVector.getMutator();
@@ -178,6 +205,10 @@ public class IndexRRecordReaderByRow extends IndexRRecordReader {
   @Override
   public void close() throws Exception {
     super.close();
+    if (curSegment != null) {
+      IOUtils.closeQuietly(curSegment);
+      curSegment = null;
+    }
     log.debug("cost: setValue: {}ms", setValueTime);
   }
 }
