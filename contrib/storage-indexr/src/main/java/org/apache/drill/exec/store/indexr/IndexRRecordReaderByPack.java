@@ -17,6 +17,7 @@
  */
 package org.apache.drill.exec.store.indexr;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.exec.ops.OperatorContext;
@@ -25,21 +26,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.function.Consumer;
 
-import io.indexr.segment.CachedSegment;
 import io.indexr.segment.ColumnSchema;
-import io.indexr.segment.RSValue;
 import io.indexr.segment.Segment;
 import io.indexr.segment.SegmentSchema;
 import io.indexr.segment.helper.SegmentOpener;
 import io.indexr.segment.helper.SingleWork;
-import io.indexr.segment.rc.Attr;
 import io.indexr.segment.rc.RCOperator;
-import io.indexr.segment.rc.UnknownOperator;
+import io.indexr.segment.storage.CachedSegment;
+import io.indexr.util.BitMap;
 
 public class IndexRRecordReaderByPack extends IndexRRecordReader {
   private static final Logger log = LoggerFactory.getLogger(IndexRRecordReaderByPack.class);
@@ -48,15 +44,18 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
   private int curStepId = 0;
 
   private long setupTimePoint = 0;
-  private long getPackTime = 0;
-  private long setValueTime = 0;
   private long lmCheckTime = 0;
 
-  private boolean isLateMaterialization = false;
   private Segment curSegment;
-  private int[] projectColumnIds;
 
-  private PackReader packReader = new PackReader();
+  // We use two arrays here to make sure the scan operation is always forward in file.
+
+  // The column id of current selecting segment.
+  private int[] curSegProjColIds;
+  // The index of the projectColumnInfos according to current segment.
+  private int[] curSegProjColInfoIndies;
+
+  private PackReader packReader;
 
   public IndexRRecordReaderByPack(String tableName,//
                                   SegmentSchema schema,//
@@ -67,41 +66,14 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
     super(tableName, schema, segmentOpener, projectColumns, works);
     this.segmentOpener = segmentOpener;
     this.rsFilter = rsFilter;
-    this.works = works;
   }
 
   @Override
   public void setup(OperatorContext context, OutputMutator output) throws ExecutionSetupException {
     setupTimePoint = System.currentTimeMillis();
     super.setup(context, output);
-    projectColumnIds = new int[projectColumnInfos.length];
-
-    if (rsFilter != null) {
-      Set<String> predicateColumns = new HashSet<>();
-      boolean[] includeString = new boolean[1];
-      boolean[] includeUnknown = new boolean[1];
-      rsFilter.foreach(
-          new Consumer<RCOperator>() {
-            @Override
-            public void accept(RCOperator op) {
-              if (op instanceof UnknownOperator) {
-                includeUnknown[0] = true;
-              }
-              for (Attr attr : op.attr()) {
-                predicateColumns.add(attr.name());
-                if (!attr.sqlType().isNumber()) {
-                  includeString[0] = true;
-                }
-              }
-            }
-          });
-      // The late materialization is worthy only when there are columns not included in predicates,
-      // or predicates include string feilds.
-      isLateMaterialization = (predicateColumns.size() < projectColumnInfos.length || includeString[0]) && !includeUnknown[0];
-
-      log.debug("isLateMaterialization: {}, predicateColumns.size(): {}, projectColumnInfos.length: {}, includeString[0]: {}, includeUnknown[0]: {}, rsFilter: {}",
-          isLateMaterialization, predicateColumns.size(), projectColumnInfos.length, includeString[0], includeUnknown[0], rsFilter);
-    }
+    curSegProjColIds = new int[projectColumnInfos.length];
+    curSegProjColInfoIndies = new int[projectColumnInfos.length];
   }
 
   @Override
@@ -109,7 +81,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
     int read = -1;
     while (read <= 0) {
       try {
-        if (packReader.hasMore()) {
+        if (packReader != null && packReader.hasMore()) {
           read = packReader.read();
         } else {
           if (curStepId >= works.size()) {
@@ -118,14 +90,28 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
           SingleWork stepWork = works.get(curStepId);
           curStepId++;
 
-          Segment segment = segmentMap.get(stepWork.segment());
           int packId = stepWork.packId();
-          Segment cachedSegment = new CachedSegment(segment);
-          if (!beforeRead(cachedSegment, packId)) {
-            continue;
-          }
+          Segment segment;
+          if (curSegment != null
+              && curSegment.name().equals(stepWork.segment())) {
+            segment = curSegment;
+          } else {
+            IOUtils.closeQuietly(curSegment);
 
-          packReader.setPack(cachedSegment, packId, projectColumnInfos, projectColumnIds);
+            segment = segmentOpener.open(stepWork.segment());
+            setProjectColumnIds(segment);
+
+            curSegment = segment;
+          }
+          CachedSegment cachedSegment = new CachedSegment(segment);
+          BitMap position = beforeRead(cachedSegment, packId);
+          if (position == BitMap.NONE) {
+            continue;
+          } else if (position == BitMap.ALL || position == BitMap.SOME) {
+            packReader = new DefaultPackReader(cachedSegment, packId, projectColumnInfos, curSegProjColIds, curSegProjColInfoIndies);
+          } else {
+            packReader = new PositionPackReader(cachedSegment, packId, projectColumnInfos, curSegProjColIds, curSegProjColInfoIndies, position);
+          }
         }
       } catch (Throwable t) {
         // No matter or what, don't thrown exception from here.
@@ -139,17 +125,26 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
     return read;
   }
 
-  /**
-   * This method check whether those rows in packId possibly contains any rows we interested.
-   *
-   * @return false when this pack can be ignored.
-   */
-  private boolean beforeRead(Segment segment, int packId) throws IOException {
-    List<ColumnSchema> schemas = segment.schema().getColumns();
-    if (curSegment != segment) {
-      curSegment = segment;
+  private void setProjectColumnIds(Segment segment) {
+    // Set the project columns to the real columnIds.
+    List<ColumnSchema> columns = segment.schema().getColumns();
+    int projectId = 0;
+    for (int colId = 0; colId < columns.size(); colId++) {
+      ColumnSchema sc = columns.get(colId);
+      for (int index = 0; index < projectColumnInfos.length; index++) {
+        ColumnSchema column = projectColumnInfos[index].columnSchema;
+        if (sc.getName().equalsIgnoreCase(column.getName())
+            && sc.getDataType() == column.getDataType()) {
+          curSegProjColIds[projectId] = colId;
+          curSegProjColInfoIndies[projectId] = index;
+          projectId++;
+          break;
+        }
+      }
+    }
 
-      // Set the project columns to the real columnIds.
+    if (projectId != projectColumnInfos.length) {
+      // Find what is missing and make exception
       for (int i = 0; i < projectColumnInfos.length; i++) {
         ColumnSchema column = projectColumnInfos[i].columnSchema;
         Integer columnId = DrillIndexRTable.mapColumn(column, segment.schema());
@@ -157,35 +152,54 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
           throw new IllegalStateException(String.format("segment[%s]: column %s not found in %s",
               segment.name(), column, segment.schema()));
         }
-        projectColumnIds[i] = columnId;
       }
+
+      // Why we are here?
+      throw new RuntimeException(String.format("segment[%s]: column illegal", segment.name()));
     }
+  }
+
+  /**
+   * This method check whether those rows in packId possibly contains any rows we interested.
+   *
+   * @return false when this pack can be ignored.
+   */
+  private BitMap beforeRead(CachedSegment segment, int packId) throws IOException {
+    List<ColumnSchema> schemas = segment.schema().getColumns();
+
     // Set the attrs to the real columnIds.
     if (rsFilter != null) {
       rsFilter.materialize(schemas);
     }
 
-    if (!isLateMaterialization || rsFilter == null) {
-      return true;
+    if (rsFilter == null) {
+      return BitMap.SOME;
     }
 
     long time2 = System.currentTimeMillis();
-    byte res = rsFilter.roughCheckOnRow(segment, packId);
+    BitMap position = rsFilter.exactCheckOnRow(segment, packId);
     lmCheckTime += System.currentTimeMillis() - time2;
-
-    if (res == RSValue.None) {
+    if (position == BitMap.NONE) {
       log.debug("ignore (LM) segment: {}, pack: {}", segment.name(), packId);
     } else {
       log.debug("hit (LM) segment: {}, packId: {}", segment.name(), packId);
     }
 
-    return res != RSValue.None;
+    return position;
   }
 
   @Override
   public void close() throws Exception {
     super.close();
+    if (packReader != null) {
+      packReader.clear();
+      packReader = null;
+    }
+    if (curSegment != null) {
+      IOUtils.closeQuietly(curSegment);
+      curSegment = null;
+    }
     long now = System.currentTimeMillis();
-    log.debug("cost: total: {}ms, getPack: {}ms, setValue: {}ms, lmCheck: {}ms", now - setupTimePoint, getPackTime, setValueTime, lmCheckTime);
+    log.debug("cost: total: {}ms, lmCheck: {}ms", now - setupTimePoint, lmCheckTime);
   }
 }

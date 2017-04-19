@@ -92,7 +92,9 @@ public class ScanWrokProvider {
 
       CacheKey cacheKey = (CacheKey) o;
 
-      if (scanId != null ? !scanId.equals(cacheKey.scanId) : cacheKey.scanId != null) {return false;}
+      if (scanId != null ? !scanId.equals(cacheKey.scanId) : cacheKey.scanId != null) {
+        return false;
+      }
       if (limitScanRows != cacheKey.limitScanRows) {return false;}
       return scanSpec != null ? scanSpec.equals(cacheKey.scanSpec) : cacheKey.scanSpec == null;
     }
@@ -110,11 +112,13 @@ public class ScanWrokProvider {
     public final long scanRowCount;
     public final int minPw;
     public final int maxPw;
+    public final boolean hasAccurateFilter;
 
-    public Stat(long scanRowCount, int minPw, int maxPw) {
+    public Stat(long scanRowCount, int minPw, int maxPw, boolean hasAccurateFilter) {
       this.scanRowCount = scanRowCount;
       this.minPw = minPw;
       this.maxPw = maxPw;
+      this.hasAccurateFilter = hasAccurateFilter;
     }
   }
 
@@ -194,6 +198,7 @@ public class ScanWrokProvider {
     long passRowCount = 0;
     int passPackCount = 0;
     int passSegmentCount = 0;
+    boolean hasAccurateFilter = true;
     Set<String> realtimeNodes = new HashSet<>();
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
@@ -206,6 +211,7 @@ public class ScanWrokProvider {
           passPackCount += DataPack.rowCountToPackCount(infoSegment.rowCount());
           RTSGroupInfo rtsg = (RTSGroupInfo) infoSegment;
           realtimeNodes.add(rtsg.host());
+          hasAccurateFilter = false;
         } else {
           passPackCount += infoSegment.packCount();
         }
@@ -254,7 +260,7 @@ public class ScanWrokProvider {
     logger.debug("=============== calStat totalRowCount:{}, passRowCount:{}, passPackCount:{}, statScanRowCount:{}, maxPw: {}",
         totalRowCount, passRowCount, passPackCount, statScanRowCount, maxPw);
 
-    return new Stat(statScanRowCount, minPw, maxPw);
+    return new Stat(statScanRowCount, minPw, maxPw, hasAccurateFilter);
   }
 
   public static Works getScanWorks(boolean must,
