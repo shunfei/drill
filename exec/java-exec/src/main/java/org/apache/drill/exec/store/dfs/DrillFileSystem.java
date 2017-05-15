@@ -693,21 +693,6 @@ public class DrillFileSystem extends FileSystem implements OpenFileTracker {
   }
 
   @Override
-  public boolean truncate(final Path f, final long newLength) throws IOException {
-    return underlyingFs.truncate(f, newLength);
-  }
-
-  @Override
-  public RemoteIterator<FileStatus> listStatusIterator(final Path p) throws FileNotFoundException, IOException {
-    return underlyingFs.listStatusIterator(p);
-  }
-
-  @Override
-  public void access(final Path path, final FsAction mode) throws AccessControlException, FileNotFoundException, IOException {
-    underlyingFs.access(path, mode);
-  }
-
-  @Override
   public FileChecksum getFileChecksum(final Path f, final long length) throws IOException {
     return underlyingFs.getFileChecksum(f, length);
   }
