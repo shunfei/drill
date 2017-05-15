@@ -78,25 +78,26 @@ public class ScanWrokProvider {
     private final String scanId;
     private final IndexRScanSpec scanSpec;
     private final long limitScanRows;
+    private List<SchemaPath> columns;
 
-    public CacheKey(String scanId, IndexRScanSpec scanSpec, long limitScanRows) {
+    public CacheKey(String scanId, IndexRScanSpec scanSpec, long limitScanRows, List<SchemaPath> columns) {
       this.scanId = scanId;
       this.scanSpec = scanSpec;
       this.limitScanRows = limitScanRows;
+      this.columns = columns;
     }
 
     @Override
     public boolean equals(Object o) {
-      if (this == o) {return true;}
-      if (o == null || getClass() != o.getClass()) {return false;}
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
 
-      CacheKey cacheKey = (CacheKey) o;
+      CacheKey other = (CacheKey) o;
 
-      if (scanId != null ? !scanId.equals(cacheKey.scanId) : cacheKey.scanId != null) {
-        return false;
-      }
-      if (limitScanRows != cacheKey.limitScanRows) {return false;}
-      return scanSpec != null ? scanSpec.equals(cacheKey.scanSpec) : cacheKey.scanSpec == null;
+      return scanId == other.scanId
+          && scanSpec == other.scanSpec
+          && limitScanRows == other.limitScanRows
+          && columns == other.columns;
     }
 
     @Override
@@ -169,7 +170,7 @@ public class ScanWrokProvider {
                              String scanId,
                              long limitScanRows,
                              List<SchemaPath> columns) {
-    CacheKey key = new CacheKey(scanId, scanSpec, limitScanRows);
+    CacheKey key = new CacheKey(scanId, scanSpec, limitScanRows, columns);
     try {
       return statCache.get(key, new Callable<Stat>() {
         @Override
@@ -233,7 +234,8 @@ public class ScanWrokProvider {
       // so that we trick the planner with less scan rows.
       // The rsFilter is good, even if it looks useless in this level, i.e. roughCheckOnColumn.
       // It could make different in next level, i.e. roughCheckOnPack.
-      statScanRowCount = passRowCount - 1;
+      // STUPID IDEA!
+      //statScanRowCount = passRowCount - 1;
     }
     statScanRowCount = Math.min(statScanRowCount, limitScanRows);
 
@@ -269,7 +271,7 @@ public class ScanWrokProvider {
                                    String scanId,
                                    long limitScanRows,
                                    List<SchemaPath> columns) {
-    CacheKey key = new CacheKey(scanId, scanSpec, limitScanRows);
+    CacheKey key = new CacheKey(scanId, scanSpec, limitScanRows, columns);
     try {
       return must
           ? workCache.get(key,

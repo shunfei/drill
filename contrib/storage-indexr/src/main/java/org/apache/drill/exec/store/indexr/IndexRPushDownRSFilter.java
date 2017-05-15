@@ -64,6 +64,8 @@ public class IndexRPushDownRSFilter {
     // Don't set it!
     //groupScan.setScanSpec(newScanSpec);
 
+    log.debug("====setRSFilter old scan: {}", groupScan.hashCode());
+
     IndexRGroupScan newGroupScan = new IndexRGroupScan(
         groupScan.getUserName(),
         groupScan.getStoragePlugin(),
@@ -71,6 +73,8 @@ public class IndexRPushDownRSFilter {
         groupScan.getColumns(),
         groupScan.getLimitScanRows(),
         groupScan.getScanId());
+
+    log.debug("====setRSFilter gen new scan: {}", newGroupScan.hashCode());
 
     ScanPrel newScanPrel = ScanPrel.create(scan, filter.getTraitSet(), newGroupScan, scan.getRowType());
     // Depending on whether there is a project in the middle, assign either scan or copy of project to childRel.

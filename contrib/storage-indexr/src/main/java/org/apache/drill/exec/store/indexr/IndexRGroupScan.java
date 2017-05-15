@@ -92,6 +92,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
         columns,
         limitScanRows,
         scanId);
+    logger.debug("==== create IndexRGroupScan1 {}", hashCode());
   }
 
   public IndexRGroupScan(String userName,
@@ -108,6 +109,8 @@ public class IndexRGroupScan extends AbstractGroupScan {
     this.limitScanRows = limitScanRows;
 
     this.scanRowCount = calStat().scanRowCount;
+
+    logger.debug("==== create IndexRGroupScan3 {}", hashCode());
   }
 
   /**
@@ -125,6 +128,8 @@ public class IndexRGroupScan extends AbstractGroupScan {
     this.columns = columns;
     this.limitScanRows = limitScanRows;
     this.scanRowCount = scanRowCount;
+
+    logger.debug("==== create IndexRGroupScan2 {}", hashCode());
   }
 
   public void setScanSpec(IndexRScanSpec scanSpec) {
@@ -153,21 +158,27 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
   @Override
   public IndexRGroupScan clone(List<SchemaPath> columns) {
-    return new IndexRGroupScan(
+    logger.debug("=====clone {}, {}, {}", hashCode(), scanSpec, this.columns);
+    IndexRGroupScan scan = new IndexRGroupScan(
         this,
         columns,
         this.limitScanRows,
         this.scanRowCount);
+    logger.debug("=====clone gen {}, {}, {}", scan.hashCode(), scanSpec, columns);
+    return scan;
   }
 
   @Override
   public PhysicalOperator getNewWithChildren(List<PhysicalOperator> children) throws ExecutionSetupException {
     Preconditions.checkArgument(children.isEmpty());
-    return new IndexRGroupScan(
+    logger.debug("=====getNewWithChildren {}, {}, {}", hashCode(), scanSpec, columns);
+    IndexRGroupScan scan = new IndexRGroupScan(
         this,
         this.columns,
         this.limitScanRows,
         this.scanRowCount);
+    logger.debug("=====getNewWithChildren gen {}, {}, {}", scan.hashCode(), scanSpec, columns);
+    return scan;
   }
 
   @Override
@@ -176,7 +187,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
       // Applied already.
       return null;
     }
-    logger.debug("=============== applyLimit maxRecords:{}", maxRecords);
+    logger.debug("===============applyLimit {}, {}, applyLimit maxRecords:{}", hashCode(), scanSpec, maxRecords);
     try {
       long newScanRowCount = ScanWrokProvider.getStat(
           this.plugin,
@@ -185,11 +196,13 @@ public class IndexRGroupScan extends AbstractGroupScan {
           maxRecords, // the new one.
           this.columns).scanRowCount;
       if (newScanRowCount < this.scanRowCount) {
-        return new IndexRGroupScan(
+        IndexRGroupScan scan = new IndexRGroupScan(
             this,
             this.columns,
             maxRecords,
             newScanRowCount);
+        logger.debug("=====applyLimit gen {}, {}, {}", scan.hashCode(), scanSpec, columns);
+        return scan;
       } else {
         return null;
       }
@@ -215,7 +228,12 @@ public class IndexRGroupScan extends AbstractGroupScan {
   public ScanStats getScanStats() {
     try {
       HybridTable table = plugin.indexRNode().getTablePool().get(scanSpec.getTableName());
-      logger.debug("=============== getScanStats, scanRowCount: {}", scanRowCount);
+
+      // Hack! We love rsfilter.
+      long faster = 0;
+      if (scanSpec.getRSFilter() != null) {
+        faster += 1;
+      }
 
       // Ugly hack!
       if (scanRowCount <= ExecConstants.SLICE_TARGET_DEFAULT) {
@@ -225,10 +243,15 @@ public class IndexRGroupScan extends AbstractGroupScan {
         // We keep the scan rows over a threshold to acheive this.
         // TODO Somebody please get a better idea ...
 
-        long useRowCount = ExecConstants.SLICE_TARGET_DEFAULT;
+        long useRowCount = ExecConstants.SLICE_TARGET_DEFAULT - faster;
+
+        logger.debug("===============getScanStats {}, {}, scanRowCount: {}", hashCode(), scanSpec, useRowCount);
         return new ScanStats(ScanStats.GroupScanProperty.NO_EXACT_ROW_COUNT, useRowCount, 1, useRowCount * colCount(table));
       } else {
-        return new ScanStats(ScanStats.GroupScanProperty.EXACT_ROW_COUNT, scanRowCount, 1, scanRowCount * colCount(table));
+        long useRowCount = scanRowCount - faster;
+
+        logger.debug("===============getScanStats {}, {}, scanRowCount: {}", hashCode(), scanSpec, useRowCount);
+        return new ScanStats(ScanStats.GroupScanProperty.EXACT_ROW_COUNT, useRowCount, 1, useRowCount * colCount(table));
       }
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -242,6 +265,8 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
   @Override
   public void applyAssignments(List<DrillbitEndpoint> endpoints) throws PhysicalOperatorSetupException {
+    logger.debug("=====applyAssignments {}, {}, {}, scanId: {}", hashCode(), columns, scanSpec, scanId);
+
     try {
       Works works = calWorks(true);
       List<ScanCompleteWork> historyWorks = works.historyWorks;
@@ -304,9 +329,9 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
       this.assignments = assignments;
 
-      logger.debug("=====================  applyAssignments endpoints:{}", endpoints);
-      logger.debug("=====================  applyAssignments endpointToWorks:{}", endpointToWorks);
-      logger.debug("=====================  applyAssignments assignments:{}", assignments);
+      //logger.debug("=====================  applyAssignments endpoints:{}", endpoints);
+      //logger.debug("=====================  applyAssignments endpointToWorks:{}", endpointToWorks);
+      //logger.debug("=====================  applyAssignments assignments:{}", assignments);
 
     } catch (Exception e) {
       throw new PhysicalOperatorSetupException(e);
@@ -318,7 +343,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
     FragmentAssignment assign = assignments.get(minorFragmentId);
 
     IndexRSubScanSpec subScanSpec = new IndexRSubScanSpec(//
-        scanId,//
+        scanId + this.hashCode(),//
         scanSpec.getTableName(),//
         assign.fragmentCount,//
         assign.fragmentIndex, //
