@@ -103,7 +103,8 @@ class PositionPackReader implements PackReader {
       segment = null;
       packId = -1;
       packRowCount = -1;
-      position = BitMap.NONE;
+      position.free();
+      position = null;
     }
   }
 
