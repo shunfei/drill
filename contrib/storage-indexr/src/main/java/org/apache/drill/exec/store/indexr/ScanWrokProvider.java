@@ -323,10 +323,10 @@ public class ScanWrokProvider {
       }
     }
 
-    if (logger.isInfoEnabled()) {
+    if (logger.isDebugEnabled()) {
       double passRate = totalRowCount == 0 ? 0.0 : ((double) passRowCount) / totalRowCount;
       passRate = Math.min(passRate, 1.0);
-      logger.info("=============== calScanWorks limitScanRows: {}, Pass rate: {}, scan row: {}",
+      logger.debug("=============== calScanWorks limitScanRows: {}, Pass rate: {}, scan row: {}",
           limitScanRows,
           String.format("%.2f%%", (float) (passRate * 100)),
           passRowCount);

@@ -162,7 +162,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
   /**
    * This method check whether those rows in packId possibly contains any rows we interested.
    *
-   * @return false when this pack can be ignored.
+   * @return the positions of avaliable rows.
    */
   private BitMap beforeRead(CachedSegment segment, int packId) throws IOException {
     List<ColumnSchema> schemas = segment.schema().getColumns();
