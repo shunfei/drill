@@ -387,7 +387,9 @@ public class ScanWrokProvider {
         long segRowCount = segment.rowCount();
         int startPackId = 0;
         while (startPackId < segPackCount) {
-          int endPackId = Math.min(startPackId + packSplitStep, segPackCount);
+          // We do not split on segment any more.
+          //int endPackId = Math.min(startPackId + packSplitStep, segPackCount);
+          int endPackId = segPackCount;
           int scanPackCount = endPackId - startPackId;
 
           long rowCount;
