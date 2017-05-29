@@ -107,7 +107,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
           BitMap position = beforeRead(cachedSegment, packId);
           if (position == BitMap.NONE) {
             continue;
-          } else if (position == BitMap.ALL || position == BitMap.SOME) {
+          } else if (position == BitMap.ALL) {
             packReader = new DefaultPackReader(cachedSegment, packId, projectColumnInfos, curSegProjColIds, curSegProjColInfoIndies);
           } else {
             packReader = new PositionPackReader(cachedSegment, packId, projectColumnInfos, curSegProjColIds, curSegProjColInfoIndies, position);
@@ -173,7 +173,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
     }
 
     if (rsFilter == null) {
-      return BitMap.SOME;
+      return BitMap.ALL;
     }
 
     long time2 = System.currentTimeMillis();
