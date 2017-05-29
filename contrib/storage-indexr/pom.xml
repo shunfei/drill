@@ -23,7 +23,7 @@
   <name>contrib/indexr-storage-plugin</name>
 
   <properties>
-    <indexr.version>0.4.2</indexr.version>
+    <indexr.version>0.5.0</indexr.version>
   </properties>
 
   <dependencies>
