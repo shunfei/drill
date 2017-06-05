@@ -347,6 +347,7 @@ public class ScanWrokProvider {
     List<ScanCompleteWork> historyWorks = new ArrayList<>(1024);
     Map<DrillbitEndpoint, List<ScanCompleteWork>> realtimeWorks = new HashMap<>();
     ObjectLongHashMap<DrillbitEndpoint> affinities = new ObjectLongHashMap<>();
+    Set<DrillbitEndpoint> drillbitsWithAssignment = new HashSet<>();
 
     long totalScanRowCount = 0;
     int totalScanPackCount = 0;
@@ -372,6 +373,7 @@ public class ScanWrokProvider {
         if (rtWorks == null) {
           rtWorks = new ArrayList<>();
           realtimeWorks.put(endpoint, rtWorks);
+          drillbitsWithAssignment.add(endpoint);
         }
         rtWorks.add(new ScanCompleteWork(segment.name(), -1, 0, bytes, endpointByteMap));
 
@@ -410,6 +412,7 @@ public class ScanWrokProvider {
             if (endpoint != null) {
               endpointByteMap.add(endpoint, bytes);
               affinities.putOrAdd(endpoint, bytes, bytes);
+              drillbitsWithAssignment.add(endpoint);
               assigned = true;
             }
           }
@@ -418,6 +421,7 @@ public class ScanWrokProvider {
             DrillbitEndpoint endpoint = endpointList.get(RANDOM.nextInt(endpointList.size()));
             endpointByteMap.add(endpoint, bytes);
             affinities.putOrAdd(endpoint, bytes, bytes);
+            drillbitsWithAssignment.add(endpoint);
           }
           historyWorks.add(new ScanCompleteWork(segment.name(), startPackId, endPackId, bytes, endpointByteMap));
 
@@ -470,6 +474,8 @@ public class ScanWrokProvider {
 
     // Add one width to advoid some error from drill.
     maxPw++;
+    // Should not less than the number of drillbits with assignment.
+    maxPw = Math.max(maxPw, drillbitsWithAssignment.size());
 
     logger.debug("=============== calScanWorks minPw: {}, maxPw: {}, historyWorks: {}, realtimeWorks({}): {}, endpointAffinities: {}",
         minPw, maxPw, historyWorks, realtimeWorks.size(), realtimeWorks, endpointAffinities);
