@@ -257,7 +257,7 @@ public class ScanWrokProvider {
     maxPw = Math.max(minPw, maxPw);
 
     // Add one width to advoid some error from drill.
-    maxPw++;
+    maxPw += 2;
 
     logger.debug("=============== calStat totalRowCount:{}, passRowCount:{}, passPackCount:{}, statScanRowCount:{}, maxPw: {}",
         totalRowCount, passRowCount, passPackCount, statScanRowCount, maxPw);
@@ -473,7 +473,7 @@ public class ScanWrokProvider {
     }
 
     // Add one width to advoid some error from drill.
-    maxPw++;
+    maxPw += 2;
     // Should not less than the number of drillbits with assignment.
     maxPw = Math.max(maxPw, drillbitsWithAssignment.size());
 
