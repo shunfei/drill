@@ -256,8 +256,8 @@ public class ScanWrokProvider {
     maxPw = Math.min((int) Math.ceil((double) statScanRowCount / ExecConstants.SLICE_TARGET_DEFAULT), maxPw);
     maxPw = Math.max(minPw, maxPw);
 
-    // Add one width to advoid some error from drill.
-    maxPw += 2;
+    // Add some width to advoid some error from drill.
+    maxPw += 4;
 
     logger.debug("=============== calStat totalRowCount:{}, passRowCount:{}, passPackCount:{}, statScanRowCount:{}, maxPw: {}",
         totalRowCount, passRowCount, passPackCount, statScanRowCount, maxPw);
