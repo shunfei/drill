@@ -26,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 
 import io.indexr.segment.ColumnSchema;
@@ -41,6 +42,7 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
   private static final Logger log = LoggerFactory.getLogger(IndexRRecordReaderByPack.class);
 
   private RCOperator rsFilter;
+  private boolean[] validPacks;
   private int curStepId = 0;
 
   private long setupTimePoint = 0;
@@ -101,8 +103,30 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
             segment = segmentOpener.open(stepWork.segment());
             setProjectColumnIds(segment);
 
+            this.validPacks = new boolean[segment.packCount()];
+            if (rsFilter == null) {
+              Arrays.fill(validPacks, true);
+            } else {
+              // Set the attrs to the real columnIds.
+              rsFilter.materialize(segment.schema().getColumns());
+
+              validPacks = new boolean[segment.packCount()];
+              BitMap packBitmap = rsFilter.exactCheckOnPack(segment);
+              for (int i = 0; i < validPacks.length; i++) {
+                validPacks[i] = packBitmap.get(i);
+              }
+              packBitmap.free();
+            }
+
             curSegment = segment;
           }
+          if (!validPacks[packId]) {
+            if (log.isDebugEnabled()) {
+              log.debug("Segment [{}], pack[{}] ignore by exact check", segment.name(), packId);
+            }
+            continue;
+          }
+
           CachedSegment cachedSegment = new CachedSegment(segment);
           BitMap position = beforeRead(cachedSegment, packId);
           if (position == BitMap.NONE) {
@@ -165,13 +189,6 @@ public class IndexRRecordReaderByPack extends IndexRRecordReader {
    * @return the positions of avaliable rows.
    */
   private BitMap beforeRead(CachedSegment segment, int packId) throws IOException {
-    List<ColumnSchema> schemas = segment.schema().getColumns();
-
-    // Set the attrs to the real columnIds.
-    if (rsFilter != null) {
-      rsFilter.materialize(schemas);
-    }
-
     if (rsFilter == null) {
       return BitMap.ALL;
     }

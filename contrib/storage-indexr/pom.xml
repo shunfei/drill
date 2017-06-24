@@ -35,31 +35,7 @@
 
     <dependency>
       <groupId>io.indexr</groupId>
-      <artifactId>indexr-common</artifactId>
-      <version>${indexr.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>com.fasterxml.jackson.core</groupId>
-          <artifactId>jackson-core</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.fasterxml.jackson.core</groupId>
-          <artifactId>jackson-databind</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-log4j12</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>log4j</groupId>
-          <artifactId>log4j</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
-    <dependency>
-      <groupId>io.indexr</groupId>
-      <artifactId>indexr-segment</artifactId>
+      <artifactId>indexr-vlt-segment</artifactId>
       <version>${indexr.version}</version>
       <exclusions>
         <exclusion>

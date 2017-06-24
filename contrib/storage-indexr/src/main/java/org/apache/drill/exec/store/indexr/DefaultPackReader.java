@@ -51,6 +51,7 @@ import io.indexr.segment.pack.DataPackNode;
 import io.indexr.segment.storage.CachedSegment;
 import io.indexr.segment.storage.Version;
 import io.indexr.util.MemoryUtil;
+import io.indexr.vlt.segment.pack.DataPackNode_VLT;
 import io.netty.buffer.DrillBuf;
 
 class DefaultPackReader implements PackReader {
@@ -92,8 +93,24 @@ class DefaultPackReader implements PackReader {
       assert packRowCount == -1 || packRowCount == dpn.objCount();
 
       packRowCount = dpn.objCount();
-      projectSizePerRow += Math.ceil(((double) dpn.objCount()) / packRowCount);
+      int packSize;
+      if (dpn instanceof DataPackNode_VLT) {
+        packSize = ((DataPackNode_VLT) dpn).dataSize();
+      } else {
+        if (column.dataType() == ColumnType.STRING) {
+          // We don't know the exact size.
+          packSize = dpn.packSize() * 5;
+        } else {
+          packSize = ColumnType.bufferSize(column.dataType());
+        }
+      }
+      projectSizePerRow += Math.ceil(((double) packSize) / packRowCount);
+      if (column.dataType() == ColumnType.STRING) {
+        // strings' len varys.
+        projectSizePerRow = (int) (projectSizePerRow * 1.2f);
+      }
     }
+    projectSizePerRow = Math.max(projectSizePerRow, 1);
 
     this.projectInfos = projectInfos;
     this.projColIds = projColIds;
