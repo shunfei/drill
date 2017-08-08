@@ -203,6 +203,9 @@ public class ScanWrokProvider {
     Set<String> realtimeNodes = new HashSet<>();
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
+      if (infoSegment.rowCount() == 0) {
+        continue;
+      }
       totalRowCount += infoSegment.rowCount();
       if (rsFilter != null) {
         rsFilter.materialize(infoSegment.schema().getColumns());
@@ -306,6 +309,9 @@ public class ScanWrokProvider {
     List<InfoSegment> usedSegments = new ArrayList<>(Math.max(allSegments.size() / 2, 100));
     for (SegmentFd fd : allSegments) {
       InfoSegment infoSegment = fd.info();
+      if (infoSegment.rowCount() == 0) {
+        continue;
+      }
       totalRowCount += infoSegment.rowCount();
       if (rsFilter != null) {
         rsFilter.materialize(infoSegment.schema().getColumns());
