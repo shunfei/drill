@@ -17,10 +17,12 @@
  */
 package org.apache.drill.exec.planner.fragment;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.util.DrillStringUtils;
@@ -48,11 +50,10 @@ import org.apache.drill.exec.server.options.OptionManager;
 import org.apache.drill.exec.work.QueryWorkUnit;
 import org.apache.drill.exec.work.foreman.ForemanSetupException;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 
 /**
  * The simple parallelizer determines the level of parallelization of a plan based on the cost of the underlying
@@ -123,7 +124,7 @@ public class SimpleParallelizer implements ParallelizationParameters {
       Collection<DrillbitEndpoint> activeEndpoints, PhysicalPlanReader reader, Fragment rootFragment,
       UserSession session, QueryContextInformation queryContextInfo) throws ExecutionSetupException {
 
-    final PlanningSet planningSet = getFragmentsHelper(activeEndpoints, rootFragment);
+    final PlanningSet planningSet = getFragmentsHelper(activeEndpoints, rootFragment, foremanNode);
     return generateWorkUnit(
         options, foremanNode, queryId, reader, rootFragment, planningSet, session, queryContextInfo);
   }
@@ -154,7 +155,7 @@ public class SimpleParallelizer implements ParallelizationParameters {
    * @return
    * @throws ExecutionSetupException
    */
-  protected PlanningSet getFragmentsHelper(Collection<DrillbitEndpoint> activeEndpoints, Fragment rootFragment) throws ExecutionSetupException {
+  protected PlanningSet getFragmentsHelper(Collection<DrillbitEndpoint> activeEndpoints, Fragment rootFragment, DrillbitEndpoint foremanNode) throws ExecutionSetupException {
 
     PlanningSet planningSet = new PlanningSet();
 
@@ -164,7 +165,7 @@ public class SimpleParallelizer implements ParallelizationParameters {
 
     // Start parallelizing from leaf fragments
     for (Wrapper wrapper : leafFragments) {
-      parallelizeFragment(wrapper, planningSet, activeEndpoints);
+      parallelizeFragment(wrapper, planningSet, activeEndpoints, foremanNode);
     }
 
     return planningSet;
@@ -230,7 +231,7 @@ public class SimpleParallelizer implements ParallelizationParameters {
    * parallelizing the given fragment.
    */
   private void parallelizeFragment(Wrapper fragmentWrapper, PlanningSet planningSet,
-      Collection<DrillbitEndpoint> activeEndpoints) throws PhysicalOperatorSetupException {
+      Collection<DrillbitEndpoint> activeEndpoints, DrillbitEndpoint foremanNode) throws PhysicalOperatorSetupException {
     // If the fragment is already parallelized, return.
     if (fragmentWrapper.isEndpointsAssignmentDone()) {
       return;
@@ -240,13 +241,13 @@ public class SimpleParallelizer implements ParallelizationParameters {
     final List<Wrapper> fragmentDependencies = fragmentWrapper.getFragmentDependencies();
     if (fragmentDependencies != null && fragmentDependencies.size() > 0) {
       for(Wrapper dependency : fragmentDependencies) {
-        parallelizeFragment(dependency, planningSet, activeEndpoints);
+        parallelizeFragment(dependency, planningSet, activeEndpoints, foremanNode);
       }
     }
 
     // Find stats. Stats include various factors including cost of physical operators, parallelizability of
     // work in physical operator and affinity of physical operator to certain nodes.
-    fragmentWrapper.getNode().getRoot().accept(new StatsCollector(planningSet), fragmentWrapper);
+    fragmentWrapper.getNode().getRoot().accept(new StatsCollector(planningSet, foremanNode), fragmentWrapper);
 
     fragmentWrapper.getStats().getDistributionAffinity()
         .getFragmentParallelizer()

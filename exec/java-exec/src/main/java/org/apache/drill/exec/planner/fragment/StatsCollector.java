@@ -18,11 +18,14 @@
 package org.apache.drill.exec.planner.fragment;
 
 import com.google.common.collect.Lists;
+
+import org.apache.drill.exec.physical.EndpointAffinity;
 import org.apache.drill.exec.physical.base.Exchange;
 import org.apache.drill.exec.physical.base.GroupScan;
 import org.apache.drill.exec.physical.base.HasAffinity;
 import org.apache.drill.exec.physical.base.PhysicalOperator;
 import org.apache.drill.exec.physical.base.Store;
+import org.apache.drill.exec.physical.config.Screen;
 import org.apache.drill.exec.planner.AbstractOpWrapperVisitor;
 import org.apache.drill.exec.planner.fragment.Fragment.ExchangeFragmentPair;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
@@ -38,9 +41,11 @@ import java.util.List;
  */
 public class StatsCollector extends AbstractOpWrapperVisitor<Void, RuntimeException> {
   private final PlanningSet planningSet;
+  private final DrillbitEndpoint foremanNode;
 
-  public StatsCollector(final PlanningSet planningSet) {
+  public StatsCollector(final PlanningSet planningSet, final DrillbitEndpoint foremanNode) {
     this.planningSet = planningSet;
+    this.foremanNode = foremanNode;
   }
 
   @Override
@@ -102,7 +107,16 @@ public class StatsCollector extends AbstractOpWrapperVisitor<Void, RuntimeExcept
     final Stats stats = wrapper.getStats();
     if (op instanceof HasAffinity) {
       final HasAffinity hasAffinity = (HasAffinity)op;
-      stats.addEndpointAffinities(hasAffinity.getOperatorAffinity());
+      if(wrapper.getNode().getRoot() instanceof Screen) {
+        for(EndpointAffinity a : hasAffinity.getOperatorAffinity()){
+          // For a segment with screen operator, only the forman can be assigned.
+          if(a.getEndpoint().equals(foremanNode)){
+            stats.addEndpointAffinities(Lists.newArrayList(a));
+          }
+        }
+      }else {
+        stats.addEndpointAffinities(hasAffinity.getOperatorAffinity());
+      }
       stats.setDistributionAffinity(hasAffinity.getDistributionAffinity());
     }
     stats.addCost(op.getCost());

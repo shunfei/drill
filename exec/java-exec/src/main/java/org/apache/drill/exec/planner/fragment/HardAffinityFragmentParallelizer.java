@@ -78,7 +78,13 @@ public class HardAffinityFragmentParallelizer implements FragmentParallelizer {
     width = Math.max(1, Math.min(width, pInfo.getMaxWidth()));
     checkOrThrow(endpointPool.size() <= width, logger,
         "Number of mandatory endpoints ({}) that require an assignment is more than the allowed fragment max " +
-            "width ({}).", endpointPool.size(), pInfo.getMaxWidth());
+            "width ({}), fragmentWrapper.getNode(): {}, fragmentWrapper.getFragmentDependencies(): {}, endpointPool: {}, pInfo.getEndpointAffinityMap(): {}.",
+        endpointPool.size(),
+        pInfo.getMaxWidth(),
+        fragmentWrapper.getNode(),
+        fragmentWrapper.getFragmentDependencies(),
+        org.apache.commons.lang3.StringUtils.join( endpointPool.values(), ","),
+        org.apache.commons.lang3.StringUtils.join(pInfo.getEndpointAffinityMap().values(), ","));
 
     // 1.4 Cap the parallelization width by global max query width
     width = Math.max(1, Math.min(width, parameters.getMaxGlobalWidth()));

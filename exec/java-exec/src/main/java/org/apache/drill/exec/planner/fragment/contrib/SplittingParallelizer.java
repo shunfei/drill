@@ -17,9 +17,10 @@
  */
 package org.apache.drill.exec.planner.fragment.contrib;
 
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.List;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.util.DrillStringUtils;
@@ -29,10 +30,10 @@ import org.apache.drill.exec.physical.base.FragmentRoot;
 import org.apache.drill.exec.physical.base.PhysicalOperator;
 import org.apache.drill.exec.planner.PhysicalPlanReader;
 import org.apache.drill.exec.planner.fragment.Fragment;
+import org.apache.drill.exec.planner.fragment.Materializer.IndexedFragmentNode;
 import org.apache.drill.exec.planner.fragment.PlanningSet;
 import org.apache.drill.exec.planner.fragment.SimpleParallelizer;
 import org.apache.drill.exec.planner.fragment.Wrapper;
-import org.apache.drill.exec.planner.fragment.Materializer.IndexedFragmentNode;
 import org.apache.drill.exec.proto.BitControl.PlanFragment;
 import org.apache.drill.exec.proto.BitControl.QueryContextInformation;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
@@ -43,9 +44,9 @@ import org.apache.drill.exec.server.options.OptionList;
 import org.apache.drill.exec.work.QueryWorkUnit;
 import org.apache.drill.exec.work.foreman.ForemanSetupException;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * SimpleParallelizerMultiPlans class is an extension to SimpleParallelizer
@@ -81,7 +82,7 @@ public class SplittingParallelizer extends SimpleParallelizer {
       Collection<DrillbitEndpoint> activeEndpoints, PhysicalPlanReader reader, Fragment rootFragment,
       UserSession session, QueryContextInformation queryContextInfo) throws ExecutionSetupException {
 
-    final PlanningSet planningSet = getFragmentsHelper(activeEndpoints, rootFragment);
+    final PlanningSet planningSet = getFragmentsHelper(activeEndpoints, rootFragment, foremanNode);
 
     return generateWorkUnits(
         options, foremanNode, queryId, reader, rootFragment, planningSet, session, queryContextInfo);
