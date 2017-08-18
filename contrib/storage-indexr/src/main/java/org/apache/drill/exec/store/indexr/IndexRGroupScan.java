@@ -224,7 +224,6 @@ public class IndexRGroupScan extends AbstractGroupScan {
     return colCount;
   }
 
-  @Override
   public ScanStats getScanStats() {
     try {
       HybridTable table = plugin.indexRNode().getTablePool().get(scanSpec.getTableName());
@@ -236,14 +235,15 @@ public class IndexRGroupScan extends AbstractGroupScan {
       }
 
       // Ugly hack!
-      if (scanRowCount <= ExecConstants.SLICE_TARGET_DEFAULT) {
+      long threshold = ExecConstants.SLICE_TARGET_DEFAULT + 10;
+      if (scanRowCount <= threshold) {
 
         // We must make the planner use exchange which can spreads the query fragments among nodes.
         // Otherwise realtime segments won't be able to query.
         // We keep the scan rows over a threshold to acheive this.
         // TODO Somebody please get a better idea ...
 
-        long useRowCount = ExecConstants.SLICE_TARGET_DEFAULT - faster;
+        long useRowCount = threshold - faster;
 
         logger.debug("===============getScanStats {}, {}, scanRowCount: {}", hashCode(), scanSpec, useRowCount);
         return new ScanStats(ScanStats.GroupScanProperty.NO_EXACT_ROW_COUNT, useRowCount, 1, useRowCount * colCount(table));
