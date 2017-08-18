@@ -16,7 +16,7 @@
   <parent>
     <artifactId>drill-contrib-parent</artifactId>
     <groupId>org.apache.drill.contrib</groupId>
-    <version>1.10.0</version>
+    <version>1.11.0</version>
   </parent>
 
   <artifactId>drill-indexr-storage</artifactId>
