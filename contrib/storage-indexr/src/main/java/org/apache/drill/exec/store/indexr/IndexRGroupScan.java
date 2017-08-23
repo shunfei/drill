@@ -236,7 +236,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
 
       // Ugly hack!
       long threshold = ExecConstants.SLICE_TARGET_DEFAULT + 10;
-      if (scanRowCount <= threshold) {
+      if (scanRowCount > 0 && scanRowCount <= threshold) {
 
         // We must make the planner use exchange which can spreads the query fragments among nodes.
         // Otherwise realtime segments won't be able to query.
@@ -248,7 +248,7 @@ public class IndexRGroupScan extends AbstractGroupScan {
         logger.debug("===============getScanStats {}, {}, scanRowCount: {}", hashCode(), scanSpec, useRowCount);
         return new ScanStats(ScanStats.GroupScanProperty.NO_EXACT_ROW_COUNT, useRowCount, 1, useRowCount * colCount(table));
       } else {
-        long useRowCount = scanRowCount - faster;
+        long useRowCount = Math.max(scanRowCount - faster, 0);
 
         logger.debug("===============getScanStats {}, {}, scanRowCount: {}", hashCode(), scanSpec, useRowCount);
         return new ScanStats(ScanStats.GroupScanProperty.EXACT_ROW_COUNT, useRowCount, 1, useRowCount * colCount(table));
