@@ -357,7 +357,7 @@ public class ScanWrokProvider {
       if (segment.isRealtime()) {
         // Realtime segments.
         assert hosts.size() == 1;
-        long bytes = (long) (rtByteCostPerRow * segment.rowCount());
+        long bytes = Math.max((long) (rtByteCostPerRow * segment.rowCount()), 1);
         DrillbitEndpoint endpoint = hostEndpointMap.get(hosts.get(0));
         if (endpoint == null) {
           // Looks like this endpoint is down, the realtime segment on it cannot reach right now, let's move on.
@@ -403,7 +403,7 @@ public class ScanWrokProvider {
             rowCount = (scanPackCount - 1) * DataPack.MAX_COUNT + DataPack.packRowCount(segRowCount, endPackId - 1);
           }
 
-          long bytes = (long) (hisByteCostPerRow * rowCount);
+          long bytes = Math.max((long) (hisByteCostPerRow * rowCount), 1);
           EndpointByteMap endpointByteMap = new EndpointByteMapImpl();
           boolean assigned = false;
           for (String host : hosts) {
@@ -443,7 +443,7 @@ public class ScanWrokProvider {
       endpointAffinities.add(new EndpointAffinity(cursor.key, cursor.value));
     }
     if (endpointAffinities.size() == 0) {
-      endpointAffinities.add(new EndpointAffinity(plugin.context().getEndpoint(), 0));
+      endpointAffinities.add(new EndpointAffinity(plugin.context().getEndpoint(), 1));
     }
     endpointAffinities.sort(new RTSFirstDesc(realtimeWorks));
 
