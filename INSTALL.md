@@ -44,3 +44,13 @@ Currently, the Apache Drill build process is known to work on Linux, Windows and
 ## More information 
 
 For more information including how to run a Apache Drill cluster, visit the [Apache Drill Documentation](http://drill.apache.org/docs/)
+
+##Add by conn
+ drill version:apache drill:1.13.0
+ indexr version:indexr:0.6.1
+ Storage-kafka and Storage-opensdb were removed when building Apache Drill-1.13.0,because kafka_2.11
+ Because:
+   Storage-kafka depend on kafka_2.11,Storage-opensdb depend on scala-library-2.11.0 ,
+ but Indexr-0.6.1 depend on kafka_2.10 and scala-library-2.10.4,
+ Indexr's kafka, indxr's scala, and Storage-kafka's kafka, Storage-opensdb's scala dependencies conflict;
+ Indexr real-time mode cannot start. 

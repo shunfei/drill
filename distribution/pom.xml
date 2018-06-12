@@ -14,7 +14,7 @@
   <parent>
     <artifactId>drill-root</artifactId>
     <groupId>org.apache.drill</groupId>
-    <version>1.13.0-SNAPSHOT</version>
+    <version>1.13.0</version>
   </parent>
 
   <artifactId>distribution</artifactId>
@@ -225,12 +225,17 @@
           <groupId>org.apache.drill.contrib</groupId>
           <artifactId>drill-kudu-storage</artifactId>
           <version>${project.version}</version>
-        </dependency>
+        </dependency> 
         <dependency>
+          <groupId>org.apache.drill.contrib</groupId>
+          <artifactId>drill-indexr-storage</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <!-- <dependency>
           <groupId>org.apache.drill.contrib</groupId>
           <artifactId>drill-opentsdb-storage</artifactId>
           <version>${project.version}</version>
-        </dependency>
+        </dependency> -->
         <dependency>
           <groupId>org.apache.drill.contrib</groupId>
           <artifactId>drill-mongo-storage</artifactId>
@@ -262,11 +267,11 @@
           <artifactId>drill-gis</artifactId>
           <version>${project.version}</version>
         </dependency>
-	<dependency>
+	<!-- <dependency>
           <groupId>org.apache.drill.contrib</groupId>
           <artifactId>drill-storage-kafka</artifactId>
           <version>${project.version}</version>
-        </dependency>
+        </dependency> -->
       </dependencies>
     </profile>
 
